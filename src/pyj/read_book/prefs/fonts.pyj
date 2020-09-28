@@ -16,6 +16,11 @@ DEFAULT_MINIMUM_FONT_SIZE = 8
 DEFAULT_ZOOM_STEP_SIZE = 20
 
 
+def current_zoom_step_size():
+    s = get_session_data().get('standalone_font_settings')
+    return s.zoom_step_size or DEFAULT_ZOOM_STEP_SIZE
+
+
 def font_select(name, settings):
     ans = E.select(name=name)
     ans.appendChild(E.option(_('— Choose a font —'), value=''))
@@ -88,8 +93,8 @@ def create_fonts_panel(container, apply_func, cancel_func):
         row(_('Standard font'), standard_font(settings)),
     ))
 
-    container.append(E.div(_('Zoom related settings'), style='margin-top: 1rem'))
-    container.append(E.table(style='margin-top: 1rem',
+    container.append(E.div(_('Zoom related settings'), style='margin-top: 1rem; padding-top: 1rem; width: 100%; border-top: solid 1px'))
+    container.append(E.table(
         row(_('Zoom step size (%)'), zoom_step_size(settings)),
         row(_('Minimum font size (px)'), minimum_font_size(settings)),
     ))

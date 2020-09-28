@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -12,6 +12,7 @@ from itertools import count
 from lxml import etree
 
 from polyglot.builtins import range, map
+from calibre.utils.xml_parse import safe_xml_fromstring
 
 
 class Font(object):
@@ -622,8 +623,7 @@ class PDFDocument(object):
 
     def __init__(self, xml, opts, log):
         self.opts, self.log = opts, log
-        parser = etree.XMLParser(recover=True)
-        self.root = etree.fromstring(xml, parser=parser)
+        self.root = safe_xml_fromstring(xml)
         idc = count()
 
         self.fonts = []

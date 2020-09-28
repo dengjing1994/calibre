@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
@@ -18,6 +17,31 @@ from calibre import isbytestring, force_unicode
 from calibre.utils.config_base import tweaks
 from calibre.utils.icu import sort_key
 from polyglot.builtins import string_or_bytes, iteritems, itervalues, cmp
+
+
+def none_cmp(xx, yy):
+    x = xx[1]
+    y = yy[1]
+    if x is None and y is None:
+        # No sort_key needed here, because defaults are ascii
+        return cmp(xx[2], yy[2])
+    if x is None:
+        return 1
+    if y is None:
+        return -1
+    if isinstance(x, string_or_bytes) and isinstance(y, string_or_bytes):
+        x, y = sort_key(force_unicode(x)), sort_key(force_unicode(y))
+    try:
+        c = cmp(x, y)
+    except TypeError:
+        c = 0
+    if c != 0:
+        return c
+    # same as above -- no sort_key needed here
+    try:
+        return cmp(xx[2], yy[2])
+    except TypeError:
+        return 0
 
 
 class Book(Metadata):
@@ -279,30 +303,6 @@ class CollectionsBookList(BookList):
 
         # Sort collections
         result = {}
-
-        def none_cmp(xx, yy):
-            x = xx[1]
-            y = yy[1]
-            if x is None and y is None:
-                # No sort_key needed here, because defaults are ascii
-                return cmp(xx[2], yy[2])
-            if x is None:
-                return 1
-            if y is None:
-                return -1
-            if isinstance(x, string_or_bytes) and isinstance(y, string_or_bytes):
-                x, y = sort_key(force_unicode(x)), sort_key(force_unicode(y))
-            try:
-                c = cmp(x, y)
-            except TypeError:
-                c = 0
-            if c != 0:
-                return c
-            # same as above -- no sort_key needed here
-            try:
-                return cmp(xx[2], yy[2])
-            except TypeError:
-                return 0
 
         for category, lpaths in iteritems(collections):
             books = sorted(itervalues(lpaths), key=cmp_to_key(none_cmp))

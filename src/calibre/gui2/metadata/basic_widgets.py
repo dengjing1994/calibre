@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -10,20 +10,20 @@ import textwrap, re, os, shutil, weakref
 from datetime import date, datetime
 
 from PyQt5.Qt import (
-    Qt, QDateTimeEdit, pyqtSignal, QMessageBox, QIcon, QToolButton, QWidget,
+    Qt, pyqtSignal, QMessageBox, QIcon, QToolButton, QWidget,
     QLabel, QGridLayout, QApplication, QDoubleSpinBox, QListWidgetItem, QSize,
     QPixmap, QDialog, QMenu, QLineEdit, QSizePolicy, QKeySequence,
-    QDialogButtonBox, QAction, QCalendarWidget, QDate, QDateTime, QUndoCommand,
+    QDialogButtonBox, QAction, QDateTime, QUndoCommand,
     QUndoStack, QVBoxLayout, QPlainTextEdit, QUrl)
 
 from calibre.gui2.widgets import EnLineEdit, FormatList as _FormatList, ImageView
-from calibre.gui2.widgets2 import access_key, populate_standard_spinbox_context_menu, RightClickButton, Dialog, RatingEditor
+from calibre.gui2.widgets2 import access_key, populate_standard_spinbox_context_menu, RightClickButton, Dialog, RatingEditor, DateTimeEdit
 from calibre.utils.icu import sort_key
 from calibre.utils.config import tweaks, prefs
 from calibre.ebooks.metadata import (
     title_sort, string_to_authors, check_isbn, authors_to_sort_string)
 from calibre.ebooks.metadata.meta import get_metadata
-from calibre.gui2 import (file_icon_provider, UNDEFINED_QDATETIME,
+from calibre.gui2 import (file_icon_provider,
         choose_files, error_dialog, choose_images, gprefs)
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.utils.date import (
@@ -52,7 +52,7 @@ def save_dialog(parent, title, msg, det_msg=''):
 
 
 def clean_text(x):
-    return re.sub(r'\s', ' ', x.strip())
+    return re.sub(r'\s', ' ', x.strip(), flags=re.ASCII)
 
 
 '''
@@ -221,7 +221,6 @@ class TitleEdit(EnLineEdit, ToMetadataMixin):
 
     @property
     def current_val(self):
-
         title = clean_text(unicode_type(self.text()))
         if not title:
             title = self.get_default()
@@ -764,7 +763,7 @@ class ViewAction(QAction):
 
     def __init__(self, item, parent):
         self.item = item
-        QAction.__init__(self, _('&View')+' '+item.ext.upper(), parent)
+        QAction.__init__(self, _('&View {} format').format(item.ext.upper()), parent)
         self.triggered.connect(self._triggered)
 
     def _triggered(self):
@@ -1093,6 +1092,7 @@ class Cover(ImageView):  # {{{
         ImageView.__init__(self, parent, show_size_pref_name='edit_metadata_cover_widget', default_show_size=True)
         self.dialog = parent
         self._cdata = None
+        self.draw_border = False
         self.cdata_before_trim = None
         self.cover_changed.connect(self.set_pixmap_from_data)
 
@@ -1113,7 +1113,7 @@ class Cover(ImageView):  # {{{
         b.setToolTip(_(
             'Automatically detect and remove extra space at the cover\'s edges.\n'
             'Pressing it repeatedly can sometimes remove stubborn borders.'))
-        b.m = m = QMenu()
+        b.m = m = QMenu(b)
         b.setPopupMode(QToolButton.InstantPopup)
         m.addAction(QIcon(I('trim.png')), _('Automatically trim borders'), self.trim_cover)
         m.addSeparator()
@@ -1124,7 +1124,7 @@ class Cover(ImageView):  # {{{
 
         self.download_cover_button = CB(_('Download co&ver'), 'arrow-down.png', self.download_cover)
         self.generate_cover_button = b = CB(_('&Generate cover'), 'default_cover.png', self.generate_cover)
-        b.m = m = QMenu()
+        b.m = m = QMenu(b)
         b.setMenu(m)
         m.addAction(QIcon(I('config.png')), _('Customize the styles and colors of the generated cover'), self.custom_cover)
         b.setPopupMode(b.DelayedPopup)
@@ -1359,6 +1359,7 @@ class TagsEdit(EditWithComplete, ToMetadataMixin):  # {{{
             'or phrases, separated by commas.')
     FIELD_NAME = 'tags'
     data_changed = pyqtSignal()
+    tag_editor_requested = pyqtSignal()
 
     def __init__(self, parent):
         EditWithComplete.__init__(self, parent)
@@ -1415,6 +1416,13 @@ class TagsEdit(EditWithComplete, ToMetadataMixin):  # {{{
                 id_, self.current_val, notify=False, commit=False,
                 allow_case_change=True)
         return True
+
+    def keyPressEvent(self, ev):
+        if ev.key() == Qt.Key_F2:
+            self.tag_editor_requested.emit()
+            ev.accept()
+            return
+        return EditWithComplete.keyPressEvent(self, ev)
 
 # }}}
 
@@ -1788,14 +1796,7 @@ class PublisherEdit(EditWithComplete, ToMetadataMixin):  # {{{
 # DateEdit {{{
 
 
-class CalendarWidget(QCalendarWidget):
-
-    def showEvent(self, ev):
-        if self.selectedDate().year() == UNDEFINED_DATE.year:
-            self.setSelectedDate(QDate.currentDate())
-
-
-class DateEdit(make_undoable(QDateTimeEdit), ToMetadataMixin):
+class DateEdit(make_undoable(DateTimeEdit), ToMetadataMixin):
 
     TOOLTIP = ''
     LABEL = _('&Date:')
@@ -1815,12 +1816,6 @@ class DateEdit(make_undoable(QDateTimeEdit), ToMetadataMixin):
         elif fmt == 'iso':
             fmt = internal_iso_format_string()
         self.setDisplayFormat(fmt)
-        self.setCalendarPopup(True)
-        self.cw = CalendarWidget(self)
-        self.cw.setVerticalHeaderFormat(self.cw.NoVerticalHeader)
-        self.setCalendarWidget(self.cw)
-        self.setMinimumDateTime(UNDEFINED_QDATETIME)
-        self.setSpecialValueText(_('Undefined'))
         if create_clear_button:
             self.clear_button = QToolButton(parent)
             self.clear_button.setIcon(QIcon(I('trash.png')))
@@ -1858,13 +1853,7 @@ class DateEdit(make_undoable(QDateTimeEdit), ToMetadataMixin):
         return o != c
 
     def keyPressEvent(self, ev):
-        if ev.key() == Qt.Key_Minus:
-            ev.accept()
-            self.setDateTime(self.minimumDateTime())
-        elif ev.key() == Qt.Key_Equal:
-            ev.accept()
-            self.setDateTime(QDateTime.currentDateTime())
-        elif ev.key() == Qt.Key_Up and is_date_undefined(self.current_val):
+        if ev.key() == Qt.Key_Up and is_date_undefined(self.current_val):
             self.setDateTime(QDateTime.currentDateTime())
         elif ev.key() == Qt.Key_Tab and is_date_undefined(self.current_val):
             ev.ignore()

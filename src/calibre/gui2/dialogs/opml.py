@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -15,6 +15,7 @@ from PyQt5.Qt import (
 from lxml import etree
 
 from calibre.gui2 import choose_files, error_dialog
+from calibre.utils.xml_parse import safe_xml_fromstring
 from calibre.utils.icu import sort_key
 from polyglot.builtins import unicode_type
 
@@ -32,7 +33,7 @@ def uniq(vals, kmap=lambda x:x):
 
 
 def import_opml(raw, preserve_groups=True):
-    root = etree.fromstring(raw)
+    root = safe_xml_fromstring(raw)
     groups = defaultdict(list)
     ax = etree.XPath('ancestor::outline[@title or @text]')
     for outline in root.xpath('//outline[@type="rss" and @xmlUrl]'):

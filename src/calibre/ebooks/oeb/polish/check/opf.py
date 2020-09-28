@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -21,6 +21,14 @@ class MissingSection(BaseError):
         BaseError.__init__(self, _('The <%s> section is missing from the OPF') % section_name, name)
         self.HELP = xml(_(
             'The <%s> section is required in the OPF file. You have to create one.') % section_name)
+
+
+class EmptyID(BaseError):
+
+    def __init__(self, name, lnum):
+        BaseError.__init__(self, _('Empty id attributes are invalid'), name, lnum)
+        self.HELP = xml(_(
+            'Empty ID attributes are invalid in OPF files.'))
 
 
 class IncorrectIdref(BaseError):
@@ -292,6 +300,10 @@ def check_opf(container):
             errors.append(MissingSection(container.opf_name, tag))
 
     all_ids = set(container.opf_xpath('//*/@id'))
+    if '' in all_ids:
+        for empty_id_tag in container.opf_xpath('//*[@id=""]'):
+            errors.append(EmptyID(container.opf_name, empty_id_tag.sourceline))
+    all_ids.discard('')
     for elem in container.opf_xpath('//*[@idref]'):
         if elem.get('idref') not in all_ids:
             errors.append(IncorrectIdref(container.opf_name, elem.get('idref'), elem.sourceline))

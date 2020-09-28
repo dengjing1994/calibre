@@ -1,17 +1,19 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import re
 from calibre.ebooks.oeb.base import XPath, urlunquote
+from polyglot.builtins import as_bytes
 
 
 class DataURL(object):
 
     def __call__(self, oeb, opts):
+        from calibre.utils.imghdr import what
         self.log = oeb.log
         attr_path = XPath('//h:img[@src]')
         for item in oeb.spine:
@@ -35,7 +37,7 @@ class DataURL(object):
                         continue
                 else:
                     data = urlunquote(data)
-                from imghdr import what
+                data = as_bytes(data)
                 fmt = what(None, data)
                 if not fmt:
                     self.log.warn('Image encoded as data URL has unknown format, ignoring')

@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import re, numbers
 from collections import defaultdict, namedtuple
@@ -10,7 +10,7 @@ from threading import Thread
 
 from PyQt5.Qt import (
     QCompleter, QCoreApplication, QDateTime, QDialog, QDialogButtonBox, QFont, QProgressBar,
-    QGridLayout, QInputDialog, QLabel, QLineEdit, QSize, Qt, QVBoxLayout, pyqtSignal
+    QGridLayout, QInputDialog, QLabel, QLineEdit, QSize, Qt, QVBoxLayout, pyqtSignal, QApplication
 )
 
 from calibre import prints
@@ -26,7 +26,6 @@ from calibre.gui2.custom_column_widgets import populate_metadata_page
 from calibre.gui2.dialogs.metadata_bulk_ui import Ui_MetadataBulkDialog
 from calibre.gui2.dialogs.tag_editor import TagEditor
 from calibre.gui2.dialogs.template_line_editor import TemplateLineEditor
-from calibre.gui2.metadata.basic_widgets import CalendarWidget
 from calibre.utils.config import JSONConfig, dynamic, prefs, tweaks
 from calibre.utils.date import qt_to_dt, internal_iso_format_string
 from calibre.utils.icu import capitalize, sort_key
@@ -369,6 +368,7 @@ class MyBlockingBusy(QDialog):  # {{{
         if args.clear_series:
             self.progress_next_step_range.emit(0)
             cache.set_field('series', {bid: '' for bid in self.ids})
+            cache.set_field('series_index', {bid:1.0 for bid in self.ids})
             self.progress_finished_cur_step.emit()
 
         if args.pubdate is not None:
@@ -482,9 +482,9 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.ids = [self.db.id(r) for r in rows]
         self.first_title = self.db.title(self.ids[0], index_is_id=True)
         self.cover_clone.setToolTip(unicode_type(self.cover_clone.toolTip()) + ' (%s)' % self.first_title)
-        self.box_title.setText('<p>' +
-                _('Editing meta information for <b>%d books</b>') %
-                len(rows))
+        self.setWindowTitle(ngettext(
+            'Editing metadata for one book',
+            'Editing metadata for {} books', len(rows)).format(len(rows)))
         self.write_series = False
         self.changed = False
         self.refresh_books = refresh_books
@@ -502,9 +502,6 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.series.editTextChanged.connect(self.series_changed)
         self.tag_editor_button.clicked.connect(self.tag_editor)
         self.autonumber_series.stateChanged[int].connect(self.auto_number_changed)
-        self.pubdate.setMinimumDateTime(UNDEFINED_QDATETIME)
-        self.pubdate_cw = CalendarWidget(self.pubdate)
-        self.pubdate.setCalendarWidget(self.pubdate_cw)
         pubdate_format = tweaks['gui_pubdate_display_format']
         if pubdate_format == 'iso':
             pubdate_format = internal_iso_format_string()
@@ -514,9 +511,6 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.clear_pubdate_button.clicked.connect(self.clear_pubdate)
         self.pubdate.dateTimeChanged.connect(self.do_apply_pubdate)
         self.adddate.setDateTime(QDateTime.currentDateTime())
-        self.adddate.setMinimumDateTime(UNDEFINED_QDATETIME)
-        self.adddate_cw = CalendarWidget(self.adddate)
-        self.adddate.setCalendarWidget(self.adddate_cw)
         adddate_format = tweaks['gui_timestamp_display_format']
         if adddate_format == 'iso':
             adddate_format = internal_iso_format_string()
@@ -552,7 +546,7 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.central_widget.setCurrentIndex(tab)
         geom = gprefs.get('bulk_metadata_window_geometry', None)
         if geom is not None:
-            self.restoreGeometry(bytes(geom))
+            QApplication.instance().safe_restore_geometry(self, bytes(geom))
         else:
             self.resize(self.sizeHint())
         ct = gprefs.get('bulk_metadata_window_tab', 0)
@@ -561,7 +555,6 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
         self.languages.setEditText('')
         self.authors.setFocus(Qt.OtherFocusReason)
         self.generate_cover_settings = None
-        self.button_config_cover_gen.setVisible(False)
         self.button_config_cover_gen.clicked.connect(self.customize_cover_generation)
         self.exec_()
 
@@ -680,7 +673,7 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
                  'search text. The text is replaced by the specified replacement '
                  'text everywhere it is found in the specified field. After '
                  'replacement is finished, the text can be changed to '
-                 'upper-case, lower-case, or title-case. If the case-sensitive '
+                 'upper-case, lower-case, or title-case. If the Case-sensitive '
                  'check box is checked, the search text must match exactly. If '
                  'it is unchecked, the search text will match both upper- and '
                  'lower-case letters'
@@ -886,12 +879,9 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
 
     def s_r_set_colors(self):
         if self.s_r_error is not None:
-            col = 'rgba(255, 0, 0, 20%)'
             self.test_result.setText(error_message(self.s_r_error))
-        else:
-            col = 'rgba(0, 255, 0, 20%)'
-        self.test_result.setStyleSheet('QLineEdit { color: black; '
-                                       'background-color: %s; }'%col)
+        self.test_result.setStyleSheet(
+                QApplication.instance().stylesheet_for_line_edit(self.s_r_error is not None))
         for i in range(0,self.s_r_number_of_books):
             getattr(self, 'book_%d_result'%(i+1)).setText('')
 
@@ -1075,7 +1065,7 @@ class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
     # }}}
 
     def create_custom_column_editors(self):
-        w = self.central_widget.widget(1)
+        w = self.tab
         layout = QGridLayout()
         self.custom_column_widgets, self.__cc_spacers = \
             populate_metadata_page(layout, self.db, self.ids, parent=w,

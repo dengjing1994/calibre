@@ -482,11 +482,9 @@ static PyMethodDef html_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
 static struct PyModuleDef html_module = {
     /* m_base     */ PyModuleDef_HEAD_INIT,
-    /* m_name     */ "html",
+    /* m_name     */ "html_syntax_highlighter",
     /* m_doc      */ "Speedups for the html syntax highlighter",
     /* m_size     */ -1,
     /* m_methods  */ html_methods,
@@ -496,30 +494,23 @@ static struct PyModuleDef html_module = {
     /* m_free     */ 0,
 };
 
-CALIBRE_MODINIT_FUNC PyInit_html(void) {
+CALIBRE_MODINIT_FUNC PyInit_html_syntax_highlighter(void) {
     PyObject *temp, *mod = PyModule_Create(&html_module);
-#else
-#define INITERROR return
-CALIBRE_MODINIT_FUNC inithtml(void) {
-    PyObject *temp, *mod = Py_InitModule3("html", html_methods,
-        "Speedups for the html syntax highlighter");
-#endif
-
-    if (mod == NULL) INITERROR;
+    if (mod == NULL) return NULL;
 
     if (PyType_Ready(&html_TagType) < 0)
-        INITERROR;
+        return NULL;
     if (PyType_Ready(&html_StateType) < 0)
-        INITERROR;
+        return NULL;
 
     temp = Py_BuildValue("ssssssss", "b", "strong", "h1", "h2", "h3", "h4", "h5", "h6", "h7");
-    if (temp == NULL) INITERROR;
+    if (temp == NULL) return NULL;
     bold_tags = PyFrozenSet_New(temp);
     Py_DECREF(temp);
     temp = NULL;
 
     temp = Py_BuildValue("ss", "i", "em");
-    if (temp == NULL) INITERROR;
+    if (temp == NULL) return NULL;
     italic_tags = PyFrozenSet_New(temp);
     Py_DECREF(temp);
     temp = NULL;
@@ -530,7 +521,7 @@ CALIBRE_MODINIT_FUNC inithtml(void) {
         Py_XDECREF(bold_tags);
         Py_XDECREF(italic_tags);
         Py_XDECREF(zero);
-        INITERROR;
+        return NULL;
     }
 
     Py_INCREF(&html_TagType);
@@ -540,8 +531,5 @@ CALIBRE_MODINIT_FUNC inithtml(void) {
     PyModule_AddObject(mod, "bold_tags", bold_tags);
     PyModule_AddObject(mod, "italic_tags", italic_tags);
 
-
-#if PY_MAJOR_VERSION >= 3
     return mod;
-#endif
 }

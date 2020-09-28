@@ -1,15 +1,15 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import with_statement, print_function
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, subprocess, re, sys, sysconfig
+import os, subprocess, re
 from distutils.spawn import find_executable
 
-from setup import isfreebsd, isosx, iswindows, is64bit, islinux, ishaiku
+from setup import ismacos, iswindows, is64bit, islinux, ishaiku
 is64bit
 
 NMAKE = RC = msvc = MT = win_inc = win_lib = None
@@ -30,6 +30,8 @@ for x in ('qmake-qt5', 'qt5-qmake', 'qmake'):
         QMAKE = q
         break
 QMAKE = os.environ.get('QMAKE', QMAKE)
+if iswindows and not QMAKE.lower().endswith('.exe'):
+    QMAKE += '.exe'
 
 PKGCONFIG = find_executable('pkg-config')
 PKGCONFIG = os.environ.get('PKG_CONFIG', PKGCONFIG)
@@ -81,40 +83,8 @@ def readvar(name):
     return re.search('^%s:(.+)$' % name, qraw, flags=re.M).group(1).strip()
 
 
-pyqt = {x:readvar(y) for x, y in (
-    ('inc', 'QT_INSTALL_HEADERS'), ('lib', 'QT_INSTALL_LIBS')
-)}
 qt = {x:readvar(y) for x, y in {'libs':'QT_INSTALL_LIBS', 'plugins':'QT_INSTALL_PLUGINS'}.items()}
 qmakespec = readvar('QMAKE_SPEC') if iswindows else None
-
-pyqt['sip_bin'] = os.environ.get('SIP_BIN', 'sip')
-
-from PyQt5.QtCore import PYQT_CONFIGURATION
-pyqt['sip_flags'] = PYQT_CONFIGURATION['sip_flags']
-
-
-def get_sip_dir():
-    if iswindows:
-        q = os.path.join(sys.prefix, 'share', 'sip')
-    elif isfreebsd:
-        q = os.path.join(sys.prefix, 'share', 'py-sip')
-    else:
-        q = os.path.join(sys.prefix, 'share', 'sip')
-    q = os.environ.get('SIP_DIR', q)
-    for x in ('', 'Py2-PyQt5', 'PyQt5', 'sip/PyQt5'):
-        base = os.path.join(q, x)
-        if os.path.exists(os.path.join(base, 'QtWidgets')):
-            return base
-    raise EnvironmentError('Failed to find the location of the PyQt5 .sip files')
-
-
-pyqt['pyqt_sip_dir'] = get_sip_dir()
-pyqt['sip_inc_dir'] = os.environ.get('SIP_INC_DIR', sysconfig.get_path('include'))
-
-glib_flags = subprocess.check_output([PKGCONFIG, '--libs', 'glib-2.0']).decode('utf-8').strip() if islinux or ishaiku else ''
-fontconfig_flags = subprocess.check_output([PKGCONFIG, '--libs', 'fontconfig']).decode('utf-8').strip() if islinux or ishaiku else ''
-qt_inc = pyqt['inc']
-qt_lib = pyqt['lib']
 ft_lib_dirs = []
 ft_libs = []
 ft_inc_dirs = []
@@ -128,6 +98,8 @@ zlib_inc_dirs = []
 zlib_lib_dirs = []
 hunspell_inc_dirs = []
 hunspell_lib_dirs = []
+hyphen_inc_dirs = []
+hyphen_lib_dirs = []
 openssl_inc_dirs, openssl_lib_dirs = [], []
 ICU = sw = ''
 
@@ -137,6 +109,8 @@ if iswindows:
     sw_lib_dir  = os.path.join(prefix, 'lib')
     icu_inc_dirs = [sw_inc_dir]
     icu_lib_dirs = [sw_lib_dir]
+    hyphen_inc_dirs = [sw_inc_dir]
+    hyphen_lib_dirs = [sw_lib_dir]
     openssl_inc_dirs = [sw_inc_dir]
     openssl_lib_dirs = [sw_lib_dir]
     sqlite_inc_dirs = [sw_inc_dir]
@@ -151,7 +125,7 @@ if iswindows:
     zlib_lib_dirs = [sw_lib_dir]
     podofo_inc = os.path.join(sw_inc_dir, 'podofo')
     podofo_lib = sw_lib_dir
-elif isosx:
+elif ismacos:
     sw = os.environ.get('SW', os.path.expanduser('~/sw'))
     sw_inc_dir  = os.path.join(sw, 'include')
     sw_lib_dir  = os.path.join(sw, 'lib')

@@ -1,4 +1,4 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 '''
 Make strings safe for use as ASCII filenames, while trying to preserve as much
 meaning as possible.
@@ -12,7 +12,7 @@ from math import ceil
 
 from calibre import force_unicode, isbytestring, prints, sanitize_file_name
 from calibre.constants import (
-    filesystem_encoding, iswindows, plugins, preferred_encoding, isosx
+    filesystem_encoding, iswindows, plugins, preferred_encoding, ismacos
 )
 from calibre.utils.localization import get_udc
 from polyglot.builtins import iteritems, itervalues, unicode_type, range
@@ -52,7 +52,7 @@ def shorten_component(s, by_what):
 def limit_component(x, limit=254):
     # windows and macs use ytf-16 codepoints for length, linux uses arbitrary
     # binary data, but we will assume utf-8
-    filename_encoding_for_length = 'utf-16' if iswindows or isosx else 'utf-8'
+    filename_encoding_for_length = 'utf-16' if iswindows or ismacos else 'utf-8'
 
     def encoded_length():
         q = x if isinstance(x, bytes) else x.encode(filename_encoding_for_length)
@@ -468,7 +468,7 @@ class WindowsAtomicFolderMove(object):
     def delete_originals(self):
         import win32file
         for path in self.handle_map:
-            win32file.DeleteFile(path)
+            win32file.DeleteFileW(path)
         self.close_handles()
 
 
@@ -490,9 +490,9 @@ if iswindows:
     def rename_file(a, b):
         move_file = plugins['winutil'][0].move_file
         if isinstance(a, bytes):
-            a = a.decode('mbcs')
+            a = os.fsdecode(a)
         if isinstance(b, bytes):
-            b = b.decode('mbcs')
+            b = os.fsdecode(b)
         move_file(a, b)
 
 
@@ -627,3 +627,6 @@ def copytree_using_links(path, dest, dest_is_parent=True, filecopyfunc=copyfile)
                 hardlink(src, df)
             except Exception:
                 filecopyfunc(src, df)
+
+
+rmtree = shutil.rmtree

@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2013, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import os
 import posixpath
@@ -30,7 +30,7 @@ from calibre.ebooks.oeb.polish.replace import (
 )
 from calibre.gui2 import (
     choose_dir, choose_files, choose_save_file, elided_text, error_dialog,
-    question_dialog
+    make_view_use_window_background, question_dialog
 )
 from calibre.gui2.tweak_book import (
     CONTAINER_DND_MIMETYPE, current_container, editors, tprefs
@@ -188,7 +188,40 @@ class ItemDelegate(QStyledItemDelegate):  # {{{
 # }}}
 
 
-class FileList(QTreeWidget):
+class OpenWithHandler(object):  # {{{
+
+    def add_open_with_actions(self, menu, file_name):
+        from calibre.gui2.open_with import populate_menu, edit_programs
+        fmt = file_name.rpartition('.')[-1].lower()
+        if not fmt:
+            return
+        m = QMenu(_('Open %s with...') % file_name)
+
+        def connect_action(ac, entry):
+            connect_lambda(ac.triggered, self, lambda self: self.open_with(file_name, fmt, entry))
+
+        populate_menu(m, connect_action, fmt)
+        if len(m.actions()) == 0:
+            menu.addAction(_('Open %s with...') % file_name, partial(self.choose_open_with, file_name, fmt))
+        else:
+            m.addSeparator()
+            m.addAction(_('Add other application for %s files...') % fmt.upper(), partial(self.choose_open_with, file_name, fmt))
+            m.addAction(_('Edit Open with applications...'), partial(edit_programs, fmt, self))
+            menu.addMenu(m)
+            menu.ow = m
+
+    def choose_open_with(self, file_name, fmt):
+        from calibre.gui2.open_with import choose_program
+        entry = choose_program(fmt, self)
+        if entry is not None:
+            self.open_with(file_name, fmt, entry)
+
+    def open_with(self, file_name, fmt, entry):
+        raise NotImplementedError()
+# }}}
+
+
+class FileList(QTreeWidget, OpenWithHandler):
 
     delete_requested = pyqtSignal(object, object)
     reorder_spine = pyqtSignal(object)
@@ -202,9 +235,11 @@ class FileList(QTreeWidget):
     link_stylesheets_requested = pyqtSignal(object, object, object)
     initiate_file_copy = pyqtSignal(object)
     initiate_file_paste = pyqtSignal()
+    open_file_with = pyqtSignal(object, object, object)
 
     def __init__(self, parent=None):
         QTreeWidget.__init__(self, parent)
+        make_view_use_window_background(self)
         self.categories = {}
         self.ordered_selected_indexes = False
         pi = plugins['progress_indicator'][0]
@@ -539,6 +574,8 @@ class FileList(QTreeWidget):
                 m.addAction(_('Replace %s with file...') % n, partial(self.replace, cn))
             if num > 1:
                 m.addAction(QIcon(I('save.png')), _('Export all %d selected files') % num, self.export_selected)
+            if cn not in container.names_that_must_not_be_changed:
+                self.add_open_with_actions(m, cn)
 
             m.addSeparator()
 
@@ -582,6 +619,15 @@ class FileList(QTreeWidget):
         if len(list(m.actions())) > 0:
             m.popup(self.mapToGlobal(point))
 
+    def choose_open_with(self, file_name, fmt):
+        from calibre.gui2.open_with import choose_program
+        entry = choose_program(fmt, self)
+        if entry is not None:
+            self.open_with(file_name, fmt, entry)
+
+    def open_with(self, file_name, fmt, entry):
+        self.open_file_with.emit(file_name, fmt, entry)
+
     def index_of_name(self, name):
         for category, parent in iteritems(self.categories):
             for i in range(parent.childCount()):
@@ -615,7 +661,10 @@ class FileList(QTreeWidget):
             move_to_start = question_dialog(self, _('Not first item'), _(
                 '%s is not the first text item. You should only mark the'
                 ' first text item as cover. Do you want to make it the'
-                ' first item?') % elided_text(name))
+                ' first item?') % elided_text(name),
+                skip_dialog_name='edit-book-mark-as-titlepage-move-confirm',
+                skip_dialog_skip_precheck=False
+            )
         self.mark_requested.emit(name, 'titlepage:%r' % move_to_start)
 
     def keyPressEvent(self, ev):
@@ -743,9 +792,9 @@ class FileList(QTreeWidget):
     def dropEvent(self, event):
         with self:
             text = self.categories['text']
-            pre_drop_order = {text.child(i):i for i in range(text.childCount())}
+            pre_drop_order = {text.child(i).data(0, NAME_ROLE):i for i in range(text.childCount())}
             super(FileList, self).dropEvent(event)
-            current_order = {text.child(i):i for i in range(text.childCount())}
+            current_order = {text.child(i).data(0, NAME_ROLE):i for i in range(text.childCount())}
             if current_order != pre_drop_order:
                 order = []
                 for child in (text.child(i) for i in range(text.childCount())):

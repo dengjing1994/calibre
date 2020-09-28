@@ -1,17 +1,17 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import re, weakref, operator
+import regex, weakref, operator
 from functools import partial
 from datetime import timedelta
 from collections import deque, OrderedDict
 
-from calibre.constants import preferred_encoding
+from calibre.constants import preferred_encoding, DEBUG
 from calibre.db.utils import force_to_bool
 from calibre.utils.config_base import prefs
 from calibre.utils.date import parse_date, UNDEFINED_DATE, now, dt_as_local
@@ -72,7 +72,8 @@ def _match(query, value, matchkind, use_primary_find_in_search=True, case_sensit
                 elif query == t:
                     return True
             elif matchkind == REGEXP_MATCH:
-                if re.search(query, t, re.UNICODE if case_sensitive else re.I|re.UNICODE):
+                flags = regex.UNICODE | regex.VERSION1 | regex.FULLCASE | (0 if case_sensitive else regex.IGNORECASE)
+                if regex.search(query, t, flags) is not None:
                     return True
             elif matchkind == CONTAINS_MATCH:
                 if not case_sensitive and use_primary_find_in_search:
@@ -80,7 +81,7 @@ def _match(query, value, matchkind, use_primary_find_in_search=True, case_sensit
                         return True
                 elif query in t:
                     return True
-        except re.error:
+        except regex.error:
             pass
     return False
 # }}}
@@ -100,7 +101,7 @@ class DateSearch(object):  # {{{
         self.local_today         = {'_today', 'today', icu_lower(_('today'))}
         self.local_yesterday     = {'_yesterday', 'yesterday', icu_lower(_('yesterday'))}
         self.local_thismonth     = {'_thismonth', 'thismonth', icu_lower(_('thismonth'))}
-        self.daysago_pat = re.compile(r'(%s|daysago|_daysago)$'%_('daysago'))
+        self.daysago_pat = regex.compile(r'(%s|daysago|_daysago)$'%_('daysago'), flags=regex.UNICODE | regex.VERSION1)
 
     def eq(self, dbdate, query, field_count):
         if dbdate.year == query.year:
@@ -505,7 +506,7 @@ class Parser(SearchQueryParser):  # {{{
         if location == 'vl':
             vl = self.dbcache._pref('virtual_libraries', {}).get(query) if query else None
             if not vl:
-                raise ParseException(_('No such virtual library: {}').format(query))
+                raise ParseException(_('No such Virtual library: {}').format(query))
             try:
                 return candidates & self.dbcache.books_in_virtual_library(query)
             except RuntimeError:
@@ -626,6 +627,47 @@ class Parser(SearchQueryParser):  # {{{
 
         # Everything else (and 'all' matches)
         case_sensitive = prefs['case_sensitive']
+
+        if location == 'template':
+            try:
+                template, sep, query = regex.split('#@#:([tdnb]):', query, flags=regex.IGNORECASE)
+                if sep:
+                    sep = sep.lower()
+                else:
+                    sep = 't'
+            except:
+                if DEBUG:
+                    import traceback
+                    traceback.print_exc()
+                raise ParseException(_('search template: missing or invalid separator. Valid separators are: {}').format('#@#:[tdnb]:'))
+            matchkind, query = _matchkind(query, case_sensitive=case_sensitive)
+            matches = set()
+            error_string = '*@*TEMPLATE_ERROR*@*'
+            template_cache = {}
+            for book_id in candidates:
+                mi = self.dbcache.get_proxy_metadata(book_id)
+                val = mi.formatter.safe_format(template, {}, error_string, mi,
+                                            column_name='search template',
+                                            template_cache=template_cache)
+                if val.startswith(error_string):
+                    raise ParseException(val[len(error_string):])
+                if sep == 't':
+                    if _match(query, [val,], matchkind, use_primary_find_in_search=upf,
+                              case_sensitive=case_sensitive):
+                        matches.add(book_id)
+                elif sep == 'n' and val:
+                    matches.update(self.num_search(
+                        icu_lower(query), {val:{book_id,}}.items, '', '',
+                        {book_id,}, is_many=False))
+                elif sep == 'd' and val:
+                    matches.update(self.date_search(
+                            icu_lower(query), {val:{book_id,}}.items))
+                elif sep == 'b':
+                    matches.update(self.bool_search(icu_lower(query),
+                            {'True' if val else 'False':{book_id,}}.items, False))
+
+            return matches
+
         matchkind, query = _matchkind(query, case_sensitive=case_sensitive)
         all_locs = set()
         text_fields = set()

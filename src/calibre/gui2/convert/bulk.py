@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
@@ -7,7 +7,7 @@ __docformat__ = 'restructuredtext en'
 
 import shutil
 
-from PyQt5.Qt import QModelIndex, QDialog
+from PyQt5.Qt import QModelIndex, QDialog, QApplication
 
 from calibre.gui2.convert.single import Config, GroupModel, gprefs
 from calibre.gui2.convert.look_and_feel import LookAndFeelWidget
@@ -27,9 +27,14 @@ from polyglot.builtins import unicode_type, native_string_type
 class BulkConfig(Config):
 
     def __init__(self, parent, db, preferred_output_format=None,
-            has_saved_settings=True):
+            has_saved_settings=True, book_ids=()):
         QDialog.__init__(self, parent)
+        self.widgets = []
         self.setupUi()
+        try:
+            self.num_of_books = len(book_ids)
+        except Exception:
+            self.num_of_books = 1
 
         self.setup_output_formats(db, preferred_output_format)
         self.db = db
@@ -62,7 +67,7 @@ class BulkConfig(Config):
 
         geom = gprefs.get('convert_bulk_dialog_geom', None)
         if geom:
-            self.restoreGeometry(geom)
+            QApplication.instance().safe_restore_geometry(self, geom)
         else:
             self.resize(self.sizeHint())
 
@@ -78,10 +83,12 @@ class BulkConfig(Config):
         self.plumber.merge_plugin_recs(self.plumber.output_plugin)
 
         def widget_factory(cls):
-            return cls(self.stack, self.plumber.get_option_by_name,
+            return cls(self, self.plumber.get_option_by_name,
                 self.plumber.get_option_help, self.db)
 
-        self.setWindowTitle(_('Bulk convert'))
+        self.setWindowTitle(
+            ngettext(_('Bulk convert one book'), _('Bulk convert {} books'), self.num_of_books).format(self.num_of_books)
+        )
         lf = widget_factory(LookAndFeelWidget)
         hw = widget_factory(HeuristicsWidget)
         sr = widget_factory(SearchAndReplaceWidget)
@@ -91,28 +98,23 @@ class BulkConfig(Config):
         toc.manually_fine_tune_toc.hide()
 
         output_widget = self.plumber.output_plugin.gui_configuration_widget(
-                self.stack, self.plumber.get_option_by_name,
+                self, self.plumber.get_option_by_name,
                 self.plumber.get_option_help, self.db)
 
-        while True:
-            c = self.stack.currentWidget()
-            if not c:
-                break
-            self.stack.removeWidget(c)
-
-        widgets = [lf, hw, ps, sd, toc, sr]
+        self.break_cycles()
+        widgets = self.widgets = [lf, hw, ps, sd, toc, sr]
         if output_widget is not None:
             widgets.append(output_widget)
         for w in widgets:
-            self.stack.addWidget(w)
             w.set_help_signal.connect(self.help.setPlainText)
+            w.setVisible(False)
 
         self._groups_model = GroupModel(widgets)
         self.groups.setModel(self._groups_model)
 
         idx = oidx if -1 < oidx < self._groups_model.rowCount() else 0
         self.groups.setCurrentIndex(self._groups_model.index(idx))
-        self.stack.setCurrentIndex(idx)
+        self.show_pane(idx)
         try:
             shutil.rmtree(self.plumber.archive_input_tdir, ignore_errors=True)
         except:

@@ -1,6 +1,6 @@
-#!/usr/bin/env  python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal kovid@kovidgoyal.net'
@@ -60,7 +60,7 @@ class MatchBooks(QDialog, Ui_MatchBooks):
                         gprefs.get('match_books_dialog_books_table_widths', None)
             geom = gprefs.get('match_books_dialog_geometry', None)
             if geom:
-                self.restoreGeometry(QByteArray(geom))
+                QApplication.instance().safe_restore_geometry(self, QByteArray(geom))
         except:
             pass
 
@@ -129,7 +129,7 @@ class MatchBooks(QDialog, Ui_MatchBooks):
         query = unicode_type(self.search_text.text())
         if not query:
             d = error_dialog(self.gui, _('Match books'),
-                     _('You must enter a search expression into the search box'))
+                     _('You must enter a search expression into the search field'))
             d.exec_()
             return
         try:

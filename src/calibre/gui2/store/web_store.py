@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import json
 import os
@@ -10,7 +9,7 @@ import shutil
 
 from PyQt5.Qt import (
     QHBoxLayout, QIcon, QLabel, QProgressBar, QPushButton, QSize, QUrl, QVBoxLayout,
-    QWidget, pyqtSignal
+    QWidget, pyqtSignal, QApplication
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile, QWebEngineView
 
@@ -140,7 +139,7 @@ class Main(MainWindow):
         self.setCentralWidget(c)
         geometry = gprefs.get('store_dialog_main_window_geometry')
         if geometry is not None:
-            self.restoreGeometry(geometry)
+            QApplication.instance().safe_restore_geometry(self, geometry)
         self.go_to(data['detail_url'] or None)
 
     def sizeHint(self):

@@ -1,4 +1,4 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 '''
 Dynamic language lookup of translations for user-visible strings.
 '''
@@ -34,4 +34,4 @@ def translate(lang, text):
                     _CACHE[lang] = trans
     if trans is None:
         return getattr(__builtins__, '_', lambda x: x)(text)
-    return trans.ugettext(text)
+    return trans.gettext(text)

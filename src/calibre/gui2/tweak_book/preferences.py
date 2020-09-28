@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -17,10 +17,9 @@ from copy import copy, deepcopy
 from PyQt5.Qt import (
     QDialog, QGridLayout, QStackedWidget, QDialogButtonBox, QListWidget,
     QListWidgetItem, QIcon, QWidget, QSize, QFormLayout, Qt, QSpinBox,
-    QCheckBox, pyqtSignal, QDoubleSpinBox, QComboBox, QLabel, QFont,
+    QCheckBox, pyqtSignal, QDoubleSpinBox, QComboBox, QLabel, QFont, QApplication,
     QFontComboBox, QPushButton, QSizePolicy, QHBoxLayout, QGroupBox,
-    QToolButton, QVBoxLayout, QSpacerItem, QTimer)
-from PyQt5.QtWebEngineWidgets import QWebEngineSettings
+    QToolButton, QVBoxLayout, QSpacerItem, QTimer, QRadioButton)
 
 from calibre import prepare_string_for_xml
 from calibre.utils.localization import get_lang
@@ -31,6 +30,7 @@ from calibre.gui2.tweak_book.editor.themes import default_theme, all_theme_names
 from calibre.gui2.tweak_book.spell import ManageDictionaries
 from calibre.gui2.font_family_chooser import FontFamilyChooser
 from calibre.gui2.tweak_book.widgets import Dialog
+from calibre.gui2.widgets2 import ColorButton
 
 
 class BasicSettings(QWidget):  # {{{
@@ -155,7 +155,7 @@ class BasicSettings(QWidget):  # {{{
 # }}}
 
 
-class EditorSettings(BasicSettings):
+class EditorSettings(BasicSettings):  # {{{
 
     def __init__(self, parent=None):
         BasicSettings.__init__(self, parent)
@@ -270,9 +270,10 @@ class EditorSettings(BasicSettings):
         s.setter(s.widget, current_val)
         if d.theme_name:
             s.setter(s.widget, d.theme_name)
+# }}}
 
 
-class IntegrationSettings(BasicSettings):
+class IntegrationSettings(BasicSettings):  # {{{
 
     def __init__(self, parent=None):
         BasicSettings.__init__(self, parent)
@@ -294,9 +295,10 @@ class IntegrationSettings(BasicSettings):
         order.setToolTip(_('When auto-selecting the format to edit for a book with'
                            ' multiple formats, this is the preference order.'))
         l.addRow(_('Preferred format order (drag and drop to change)'), order)
+# }}}
 
 
-class MainWindowSettings(BasicSettings):
+class MainWindowSettings(BasicSettings):  # {{{
 
     def __init__(self, parent=None):
         BasicSettings.__init__(self, parent)
@@ -335,9 +337,10 @@ class MainWindowSettings(BasicSettings):
             ' multiple files with the same file name.'
         ))
         l.addRow(nd)
+# }}}
 
 
-class PreviewSettings(BasicSettings):
+class PreviewSettings(BasicSettings):  # {{{
 
     def __init__(self, parent=None):
         BasicSettings.__init__(self, parent)
@@ -345,6 +348,7 @@ class PreviewSettings(BasicSettings):
         self.setLayout(l)
 
         def default_font(which):
+            from PyQt5.QtWebEngineWidgets import QWebEngineSettings
             s = QWebEngineSettings.defaultSettings()
             which = getattr(s, {'serif': 'SerifFont', 'sans': 'SansSerifFont', 'mono': 'FixedFont'}[which])
             return s.fontFamily(which)
@@ -377,6 +381,51 @@ class PreviewSettings(BasicSettings):
         w = self('preview_minimum_font_size')
         w.setMinimum(4), w.setMaximum(100), w.setSuffix(' px')
         l.addRow(_('Mi&nimum font size:'), w)
+        l.addRow(_('Background color:'), self.color_override('preview_background'))
+        l.addRow(_('Foreground color:'), self.color_override('preview_foreground'))
+        l.addRow(_('Link color:'), self.color_override('preview_link_color'))
+
+    def color_override(self, name):
+        w = QWidget(self)
+        l = QHBoxLayout(w)
+
+        def b(name, text, tt):
+            ans = QRadioButton(text, w)
+            l.addWidget(ans)
+            ans.setToolTip(tt)
+            setattr(w, name, ans)
+            ans.setObjectName(name)
+            return ans
+
+        b('unset', _('No change'), _('Use the colors from the book styles, defaulting to black-on-white'))
+        b('auto', _('Theme based'), _('When using a dark theme force dark colors, otherwise same as "No change"'))
+        b('manual', _('Custom'), _('Choose a custom color'))
+
+        c = w.color_button = ColorButton(parent=w)
+        l.addWidget(c)
+        connect_lambda(c.clicked, w, lambda w: w.manual.setChecked(True))
+
+        def getter(w):
+            if w.unset.isChecked():
+                return 'unset'
+            if w.auto.isChecked():
+                return 'auto'
+            return w.color_button.color or 'auto'
+
+        def setter(w, val):
+            val = val or 'auto'
+            if val == 'unset':
+                w.unset.setChecked(True)
+            elif val == 'auto':
+                w.auto.setChecked(True)
+            else:
+                w.manual.setChecked(True)
+                w.color_button.color = val
+        self(name, widget=w, getter=getter, setter=setter)
+        l.setContentsMargins(0, 0, 0, 0)
+        return w
+# }}}
+
 
 # ToolbarSettings  {{{
 
@@ -710,7 +759,7 @@ class Preferences(QDialog):
         self.resize(800, 600)
         geom = tprefs.get('preferences_geom', None)
         if geom is not None:
-            self.restoreGeometry(geom)
+            QApplication.instance().safe_restore_geometry(self, geom)
 
         self.keyboard_panel = ShortcutConfig(self)
         self.keyboard_panel.initialize(gui.keyboard)
@@ -729,6 +778,7 @@ class Preferences(QDialog):
             (_('Integration with calibre'), 'lt.png', 'integration'),
         ]:
             i = QListWidgetItem(QIcon(I(icon)), name, cl)
+            i.setToolTip(name)
             cl.addItem(i)
             self.stacks.addWidget(getattr(self, panel + '_panel'))
 
@@ -741,6 +791,7 @@ class Preferences(QDialog):
 
         cl.setMaximumWidth(cl.sizeHintForColumn(0) + 35)
         cl.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        cl.setMinimumWidth(min(cl.maximumWidth(), cl.sizeHint().width()))
 
     @property
     def dictionaries_changed(self):

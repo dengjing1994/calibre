@@ -15,6 +15,7 @@ from book_list.comments_editor import (
     create_comments_editor, focus_comments_editor, get_comments_html,
     set_comments_html
 )
+from book_list.globals import get_current_query
 from book_list.library_data import (
     book_metadata, cover_url, current_library_id, field_names_for, library_data,
     load_status, loaded_book_ids, set_book_metadata
@@ -937,8 +938,15 @@ def changes_submitted(container_id, book_id, end_type, xhr, ev):
         error_dialog(_('Could not update metadata for book'), _('Server returned an invalid response'), err.toString())
         return
 
-    for bid in dirtied:
-        set_book_metadata(bid, dirtied[book_id])
+    cq = get_current_query()
+    if cq.from_read_book:
+        window.parent.postMessage(
+            {'type': 'update_cached_book_metadata', 'library_id': cq.library_id, 'book_id': cq.book_id, 'metadata': dirtied[book_id], 'from_read_book': cq.from_read_book},
+            document.location.protocol + '//' + document.location.host
+        )
+    else:
+        for bid in dirtied:
+            set_book_metadata(bid, dirtied[bid])
     on_close(container_id)
 
 
@@ -994,7 +1002,14 @@ def on_close(container_id):
                 q = parse_url_params()
                 show_book(container_id, int(q.book_id))
                 return
-        back()
+        cq = get_current_query()
+        if cq.from_read_book:
+            window.parent.postMessage(
+                {'type': 'edit_metadata_closed', 'from_read_book': cq.from_read_book},
+                document.location.protocol + '//' + document.location.host
+            )
+        else:
+            back()
 
 
 def proceed_after_succesful_fetch_metadata(container_id, book_id):
@@ -1004,6 +1019,9 @@ def proceed_after_succesful_fetch_metadata(container_id, book_id):
     container = document.getElementById(container_id)
     mi = book_metadata(book_id)
     if not mi or not container:
+        if get_current_query().from_read_book:
+            container.textContent = _('Failed to read metadata for book')
+            return
         show_panel('book_details', query=parse_url_params(), replace=True)
         return
     set_title(container, _('Edit metadata for {}').format(mi.title))
@@ -1040,10 +1058,18 @@ def check_for_books_loaded():
     create_edit_metadata(container)
 
 
+def handle_keypress(container_id, ev):
+    if not ev.altKey and not ev.ctrlKey and not ev.metaKey and not ev.shiftKey:
+        if ev.key is 'Escape':
+            ev.preventDefault(), ev.stopPropagation()
+            on_close(container_id)
+
+
 def init(container_id):
     container = document.getElementById(container_id)
     create_top_bar(container, title=_('Edit metadata'), action=on_close.bind(None, container_id), icon='close')
-    container.appendChild(E.div(class_=CLASS_NAME))
+    container.appendChild(E.div(class_=CLASS_NAME, tabindex='0', onkeydown=handle_keypress.bind(None, container_id)))
+    container.lastChild.focus()
     container.lastChild.appendChild(E.div(_('Loading books from the calibre library, please wait...'), style='margin: 1ex 1em'))
     conditional_timeout(container_id, 5, check_for_books_loaded)
 

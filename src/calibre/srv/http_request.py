@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2015, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -404,7 +404,9 @@ class HTTPRequest(Connection):
             self.set_state(READ, self.read_chunk_length, inheaders, Accumulator(), buf, bytes_read)
 
     def handle_timeout(self):
-        if self.response_started:
+        if not hasattr(self, 'response_protocol') or self.response_started:
+            # Either connection is not ready or a response has already bee
+            # started
             return False
         self.simple_response(http_client.REQUEST_TIMEOUT)
         return True

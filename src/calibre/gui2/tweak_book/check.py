@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -13,7 +13,7 @@ from PyQt5.Qt import (
 
 from calibre.ebooks.oeb.polish.check.base import WARN, INFO, DEBUG, ERROR, CRITICAL
 from calibre.ebooks.oeb.polish.check.main import run_checks, fix_errors
-from calibre.gui2 import NO_URL_FORMATTING
+from calibre.gui2 import NO_URL_FORMATTING, safe_open_url
 from calibre.gui2.tweak_book import tprefs
 from calibre.gui2.tweak_book.widgets import BusyCursor
 from polyglot.builtins import unicode_type, range
@@ -91,7 +91,7 @@ class Check(QSplitter):
         self.items.clear()
 
     def context_menu(self, pos):
-        m = QMenu()
+        m = QMenu(self)
         if self.items.count() > 0:
             m.addAction(QIcon(I('edit-copy.png')), _('Copy list of errors to clipboard'), self.copy_to_clipboard)
         if list(m.actions()):
@@ -131,6 +131,8 @@ class Check(QSplitter):
         elif url.startswith('activate:item:'):
             index = int(url.rpartition(':')[-1])
             self.location_activated(index)
+        elif url.startswith('https://'):
+            safe_open_url(url)
 
     def next_error(self, delta=1):
         row = self.items.currentRow()

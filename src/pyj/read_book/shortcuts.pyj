@@ -51,10 +51,14 @@ def get_key_text(evt):
         cc = key.charCodeAt(0)
         # on windows in webengine pressing ctrl+ascii char gives us an ascii
         # control code
-        if (0 < cc < 32 or key is 'Enter') and evt.ctrlKey and not evt.metaKey and not evt.shiftKey and not evt.altKey:
+        # see https://bugreports.qt.io/browse/QTBUG-81783
+        if (0 < cc < 32 or key is 'Enter' or key is 'Tab') and evt.ctrlKey and not evt.metaKey and not evt.altKey:
             if key is 'Enter':
                 if evt.code and evt.code is not 'Enter':
                     key = 'm'
+            elif key is 'Tab':
+                if evt.code and evt.code is not 'Tab':
+                    key = 'i'
             else:
                 key = chr(96 + cc)
     return key
@@ -94,7 +98,7 @@ def shortcuts_definition():
         v"['Ctrl+ArrowUp', 'Ctrl+ArrowLeft', 'Home']",
         'scroll',
         _('Scroll to the beginning of the current file'),
-        _('When the e-book is made of of multiple individual files, scroll to the start of the current file.'),
+        _('When the e-book is made of multiple individual files, scroll to the start of the current file.'),
     ),
 
     'start_of_book': desc(
@@ -113,7 +117,7 @@ def shortcuts_definition():
         v"['Ctrl+ArrowDown', 'Ctrl+ArrowRight', 'End']",
         'scroll',
         _('Scroll to the end of the current file'),
-        _('When the e-book is made of of multiple individual files, scroll to the end of the current file.'),
+        _('When the e-book is made of multiple individual files, scroll to the end of the current file.'),
     ),
 
     'up': desc(
@@ -145,7 +149,7 @@ def shortcuts_definition():
     ),
 
     'pageup': desc(
-        'PageUp',
+        v"['PageUp', 'Shift+ ']",
         'scroll',
         _('Scroll backwards by screen-fulls'),
     ),
@@ -186,6 +190,12 @@ def shortcuts_definition():
         _('Show/hide Table of Contents'),
     ),
 
+    'copy_to_clipboard': desc(
+        'Ctrl+C',
+        'ui',
+        _('Copy to clipboard'),
+    ),
+
     'start_search': desc(
         v"['/', 'Ctrl+f']",
         'ui',
@@ -193,7 +203,7 @@ def shortcuts_definition():
     ),
 
     'next_match': desc(
-        v"['F3']",
+        v"['F3', 'Enter']",
         'ui',
         _('Find next'),
     ),
@@ -216,6 +226,24 @@ def shortcuts_definition():
         _('Decrease font size'),
     ),
 
+    'increase_number_of_columns': desc(
+        v"['Ctrl+]']",
+        'ui',
+        _('Increase number of pages per screen'),
+    ),
+
+    'decrease_number_of_columns': desc(
+        v"['Ctrl+[']",
+        'ui',
+        _('Decrease number of pages per screen'),
+    ),
+
+    'reset_number_of_columns': desc(
+        v"['Ctrl+Alt+c']",
+        'ui',
+        _('Make number of pages per screen automatic'),
+    ),
+
     'toggle_full_screen': desc(
         v"['F11', 'Ctrl+Shift+F']",
         'ui',
@@ -226,6 +254,36 @@ def shortcuts_definition():
         'Ctrl+m',
         'ui',
         _('Toggle between Paged mode and Flow mode for text layout')
+    ),
+
+    'toggle_scrollbar': desc(
+        'Ctrl+w',
+        'ui',
+        _('Toggle the scrollbar')
+    ),
+
+    'toggle_reference_mode': desc(
+        'Ctrl+x',
+        'ui',
+        _('Toggle the Reference mode')
+    ),
+
+    'toggle_bookmarks': desc(
+        v"['Ctrl+b']",
+        'ui',
+        _('Show/hide bookmarks'),
+    ),
+
+    'new_bookmark': desc(
+        v"['Ctrl+Alt+b']",
+        'ui',
+        _('Create a new bookmark'),
+    ),
+
+    'metadata': desc(
+        v"['Ctrl+n', 'Ctrl+e']",
+        'ui',
+        _('Show the book metadata')
     ),
 
     'reload_book': desc(
@@ -240,10 +298,52 @@ def shortcuts_definition():
         _('Search for next occurrence of selected text'),
     ),
 
+    'extend_selection_by_word': desc(
+        v"['Ctrl+Shift+ArrowRight']",
+        'ui',
+        _('Alter the current selection forward by a word'),
+    ),
+
+    'shrink_selection_by_word': desc(
+        v"['Ctrl+Shift+ArrowLeft']",
+        'ui',
+        _('Alter the current selection backwards by a word'),
+    ),
+
     'show_chrome': desc(
         v"['Escape', 'ContextMenu']",
         'ui',
         _('Show the viewer controls'),
+    ),
+
+    'preferences': desc(
+        v"['Ctrl+,', 'Ctrl+Escape', 'Meta+Escape', 'Meta+,']",
+        'ui',
+        _('Show viewer preferences'),
+    ),
+
+    'goto_location': desc(
+        v"[';', ':', 'Shift+:', 'Shift+;', 'Ctrl+g']",
+        'ui',
+        _('Go to a specified book location or position'),
+    ),
+
+    'toggle_autoscroll': desc(
+        "Ctrl+ ",
+        'scroll',
+        _('Toggle auto-scroll'),
+    ),
+
+    'scrollspeed_increase': desc(
+        "Alt+ArrowUp",
+        'scroll',
+        _('Auto scroll faster'),
+    ),
+
+    'scrollspeed_decrease': desc(
+        "Alt+ArrowDown",
+        'scroll',
+        _('Auto scroll slower'),
     ),
 
     }
@@ -264,12 +364,6 @@ def shortcuts_group_desc():
 def add_standalone_viewer_shortcuts():
     ismacos = 'macos' in window.navigator.userAgent
     sc = shortcuts_definition()
-    sc['toggle_bookmarks'] = desc(
-        v"['Ctrl+b']",
-        'ui',
-        _('Show/hide bookmarks'),
-    )
-
     sc['toggle_inspector'] = desc(
         v"['Ctrl+i']",
         'ui',
@@ -293,6 +387,18 @@ def add_standalone_viewer_shortcuts():
         "Ctrl+P",
         'ui',
         _('Print book to PDF'),
+    )
+
+    sc['toggle_toolbar'] = desc(
+        "Ctrl+F11",
+        'ui',
+        _('Toggle the toolbar'),
+    )
+
+    sc['toggle_highlights'] = desc(
+        "Ctrl+h",
+        'ui',
+        _('Toggle the highlights panel')
     )
 
 

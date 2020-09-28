@@ -1,8 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
-
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import sys
 from functools import partial
@@ -77,7 +75,7 @@ def manage_users_cli(path=None):
         return get_valid(_('Enter the username'), validate)
 
     def get_pass(username):
-        from calibre.utils.unicode_getpass import getpass
+        from getpass import getpass
 
         while True:
             one = getpass(
@@ -122,10 +120,10 @@ def manage_users_cli(path=None):
     def change_readonly(username):
         readonly = m.is_readonly(username)
         if readonly:
-            q = _('Allow {} to make changes (i.e. grant write access)?')
+            q = _('Allow {} to make changes (i.e. grant write access)')
         else:
-            q = _('Prevent {} from making changes (i.e. remove write access)?')
-        if get_input(q.format(username) + ' [y/n]:').lower() == 'y':
+            q = _('Prevent {} from making changes (i.e. remove write access)')
+        if get_input(q.format(username) + '? [y/n]:').lower() == 'y':
             m.set_readonly(username, not readonly)
 
     def change_restriction(username):
@@ -133,13 +131,19 @@ def manage_users_cli(path=None):
         if r is None:
             raise SystemExit('The user {} does not exist'.format(username))
         if r['allowed_library_names']:
+            libs = r['allowed_library_names']
             prints(
-                _('{} is currently only allowed to access the libraries named: {}')
-                .format(username, ', '.join(r['allowed_library_names'])))
+                ngettext(
+                    '{} is currently only allowed to access the library named: {}',
+                    '{} is currently only allowed to access the libraries named: {}',
+                    len(libs)).format(username, ', '.join(libs)))
         if r['blocked_library_names']:
+            libs = r['blocked_library_names']
             prints(
-                _('{} is currently not allowed to access the libraries named: {}')
-                .format(username, ', '.join(r['blocked_library_names'])))
+                ngettext(
+                    '{} is currently not allowed to access the library named: {}',
+                    '{} is currently not allowed to access the libraries named: {}',
+                    len(libs)).format(username, ', '.join(libs)))
         if r['library_restrictions']:
             prints(
                 _('{} has the following additional per-library restrictions:')

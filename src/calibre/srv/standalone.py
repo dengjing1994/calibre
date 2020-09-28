@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2015, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import json
 import os
@@ -9,14 +9,14 @@ import signal
 import sys
 
 from calibre import as_unicode
-from calibre.constants import is_running_from_develop, isosx, iswindows, plugins
+from calibre.constants import is_running_from_develop, ismacos, iswindows, plugins
 from calibre.db.delete_service import shutdown as shutdown_delete_service
 from calibre.db.legacy import LibraryDatabase
 from calibre.srv.bonjour import BonJour
 from calibre.srv.handler import Handler
 from calibre.srv.http_response import create_http_handler
 from calibre.srv.library_broker import load_gui_libraries
-from calibre.srv.loop import ServerLoop
+from calibre.srv.loop import BadIPSpec, ServerLoop
 from calibre.srv.manage_users_cli import manage_users_cli
 from calibre.srv.opts import opts_to_parser
 from calibre.srv.users import connect
@@ -129,7 +129,7 @@ libraries that the main calibre program knows about will be used.
             ' URLs and export them.'
     ))
 
-    if not iswindows and not isosx:
+    if not iswindows and not ismacos:
         # Does not work on macOS because if we fork() we cannot connect to Core
         # Serives which is needed by the QApplication() constructor, which in
         # turn is needed by ensure_app()
@@ -222,7 +222,10 @@ def main(args=sys.argv):
         raise SystemExit('The --log option must point to a file, not a directory')
     if opts.access_log and os.path.isdir(opts.access_log):
         raise SystemExit('The --access-log option must point to a file, not a directory')
-    server = Server(libraries, opts)
+    try:
+        server = Server(libraries, opts)
+    except BadIPSpec as e:
+        raise SystemExit('{}'.format(e))
     if getattr(opts, 'daemonize', False):
         if not opts.log and not iswindows:
             raise SystemExit(

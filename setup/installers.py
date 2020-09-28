@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import os, sys, subprocess, binascii, json
 
@@ -180,11 +180,16 @@ class BuildDep(Command):
     description = (
         'Build a calibre dependency. For e.g. build_dep windows expat.'
         ' Without arguments builds all deps for specified platform. Use windows 32 for 32bit.'
+        ' Use build_dep all somedep to build a dep for all platforms.'
     )
 
     def run(self, opts):
         args = opts.cli_args
-        build_dep(args)
+        if args and args[0] == 'all':
+            for x in ('linux', 'linux 32', 'macos', 'windows', 'windows 32'):
+                build_dep(x.split() + list(args)[1:])
+        else:
+            build_dep(args)
 
 
 class ExportPackages(Command):
@@ -194,7 +199,7 @@ class ExportPackages(Command):
     def run(self, opts):
         base, bypy = get_paths()
         exe = get_exe()
-        cmd = [exe, bypy, 'export'] + list(opts.cli_args) + ['download.calibre-ebook.com:/srv/download/ci/calibre']
+        cmd = [exe, bypy, 'export'] + list(opts.cli_args) + ['download.calibre-ebook.com:/srv/download/ci/calibre3']
         ret = subprocess.Popen(cmd).wait()
         if ret != 0:
             raise SystemExit(ret)

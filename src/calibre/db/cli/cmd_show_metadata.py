@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2017, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import sys
 
@@ -49,8 +48,9 @@ def main(opts, args, dbctx):
     if mi is None:
         raise SystemExit('Id #%d is not present in database.' % id)
     if opts.as_opf:
+        stdout = getattr(sys.stdout, 'buffer', sys.stdout)
         mi = OPFCreator(getcwd(), mi)
-        mi.render(sys.stdout)
+        mi.render(stdout)
     else:
         prints(unicode_type(mi))
 

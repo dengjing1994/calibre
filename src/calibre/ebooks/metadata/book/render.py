@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -87,7 +87,12 @@ def author_search_href(which, title=None, author=None):
     return func(key, title=title, author=author), tt
 
 
-def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=True, rating_font='Liberation Serif', rtl=False):
+def mi_to_html(
+        mi,
+        field_list=None, default_author_link=None, use_roman_numbers=True,
+        rating_font='Liberation Serif', rtl=False, comments_heading_pos='hide',
+        for_qt=False,
+    ):
     if field_list is None:
         field_list = get_field_list(mi)
     ans = []
@@ -131,10 +136,11 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
                     val = markdown(val)
                 else:
                     val = comments_to_html(val)
-                if disp.get('heading_position', 'hide') == 'side':
+                heading_position = disp.get('heading_position', comments_heading_pos)
+                if heading_position == 'side':
                     ans.append((field, row % (name, val)))
                 else:
-                    if disp.get('heading_position', 'hide') == 'above':
+                    if heading_position == 'above':
                         val = '<h3 class="comments-heading">%s</h3>%s' % (p(name), val)
                     comment_fields.append('<div id="%s" class="comments">%s</div>' % (field.replace('#', '_'), val))
         elif metadata['datatype'] == 'rating':
@@ -200,7 +206,7 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
             urls = urls_from_identifiers(mi.identifiers)
             links = [
                 '<a href="%s" title="%s:%s">%s</a>' % (
-                    action('identifier', url=url, name=namel, type=id_typ, value=id_val, field='identifiers', book_id=book_id),
+                    action('identifier', url=url, name=namel, id_type=id_typ, value=id_val, field='identifiers', book_id=book_id),
                     a(id_typ), a(id_val), p(namel))
                 for namel, id_typ, id_val, url in urls]
             links = u', '.join(links)
@@ -214,8 +220,6 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
                 if mi.author_link_map.get(aut):
                     link = lt = mi.author_link_map[aut]
                 elif default_author_link:
-                    if isdevice and default_author_link == 'search-calibre':
-                        default_author_link = DEFAULT_AUTHOR_LINK
                     if default_author_link.startswith('search-'):
                         which_src = default_author_link.partition('-')[2]
                         link, lt = author_search_href(which_src, title=mi.title, author=aut)
@@ -236,7 +240,7 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
             if not mi.languages:
                 continue
             names = filter(None, map(calibre_langcode_to_name, mi.languages))
-            names = ['<a href="%s" title="%s">%s</a>' % (search_action('languages', n), _(
+            names = ['<a href="%s" title="%s">%s</a>' % (search_action_with_data('languages', n, book_id), _(
                 'Search calibre for books with the language: {}').format(n), n) for n in names]
             ans.append((field, row % (name, u', '.join(names))))
         elif field == 'publisher':
@@ -288,7 +292,7 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
                     all_vals = sorted(all_vals, key=sort_key)
                 links = ['<a href="%s" title="%s">%s</a>' % (
                     search_action_with_data(st, x, book_id, field), _('Click to see books with {0}: {1}').format(
-                        metadata['name'], a(x)), p(x))
+                        metadata['name'] or field, a(x)), p(x))
                          for x in all_vals]
                 val = metadata['is_multiple']['list_to_ui'].join(links)
             elif metadata['datatype'] == 'text' or metadata['datatype'] == 'enumeration':
@@ -299,7 +303,7 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
                     st = field
                 val = '<a href="%s" title="%s">%s</a>' % (
                     search_action_with_data(st, val, book_id, field), a(
-                        _('Click to see books with {0}: {1}').format(metadata['name'], val)), p(val))
+                        _('Click to see books with {0}: {1}').format(metadata['name'] or field, val)), p(val))
 
             ans.append((field, row % (name, val)))
 
@@ -320,7 +324,10 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
         classname(fieldl), html) for fieldl, html in ans]
     # print '\n'.join(ans)
     direction = 'rtl' if rtl else 'ltr'
-    margin = 'left' if rtl else 'right'
-    return u'<style>table.fields td { vertical-align:top}</style>' + \
-           u'<table class="fields" style="direction: %s; margin-%s:auto">%s</table>'%(
-               direction, margin, u'\n'.join(ans)), comment_fields
+    rans = u'<style>table.fields td { vertical-align:top}</style><table class="fields" style="direction: %s; ' % direction
+    if not for_qt:
+        # This causes wasted space at the edge of the table in Qt's rich text
+        # engine, see https://bugs.launchpad.net/calibre/+bug/1881488
+        margin = 'left' if rtl else 'right'
+        rans += 'margin-{}: auto; '.format(margin)
+    return '{}">{}</table>'.format(rans, '\n'.join(ans)), comment_fields

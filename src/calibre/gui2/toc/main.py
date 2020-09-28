@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 # License: GPLv3 Copyright: 2013, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import os
 import sys
@@ -11,7 +10,7 @@ from functools import partial
 from threading import Thread
 
 from PyQt5.Qt import (
-    QCheckBox, QCursor, QDialog, QDialogButtonBox, QFrame, QGridLayout, QIcon,
+    QCheckBox, QCursor, QDialog, QDialogButtonBox, QFrame, QGridLayout, QIcon, QApplication,
     QInputDialog, QItemSelectionModel, QKeySequence, QLabel, QMenu, QPushButton,
     QSize, QSizePolicy, QStackedWidget, Qt, QToolButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget, pyqtSignal
@@ -666,7 +665,7 @@ class TreeWidget(QTreeWidget):  # {{{
             return ' [%s]'%sc
 
         if item is not None:
-            m = QMenu()
+            m = QMenu(self)
             m.addAction(QIcon(I('edit_input.png')), _('Change the location this entry points to'), self.edit_item)
             m.addAction(QIcon(I('modified.png')), _('Bulk rename all selected items'), self.bulk_rename)
             m.addAction(QIcon(I('trash.png')), _('Remove all selected items'), self.del_items)
@@ -684,7 +683,7 @@ class TreeWidget(QTreeWidget):  # {{{
                 m.addAction(QIcon(I('forward.png')), (_('Indent "%s"')%ci)+key(Qt.Key_Right), self.move_right)
 
             m.addSeparator()
-            case_menu = QMenu(_('Change case'))
+            case_menu = QMenu(_('Change case'), m)
             case_menu.addAction(_('Upper case'), self.upper_case)
             case_menu.addAction(_('Lower case'), self.lower_case)
             case_menu.addAction(_('Swap case'), self.swap_case)
@@ -1001,7 +1000,7 @@ class TOCEditor(QDialog):  # {{{
         ll = self.ll = QVBoxLayout()
         lw.setLayout(ll)
         self.pi = pi = ProgressIndicator()
-        pi.setDisplaySize(200)
+        pi.setDisplaySize(QSize(200, 200))
         pi.startAnimation()
         ll.addWidget(pi, alignment=Qt.AlignHCenter|Qt.AlignCenter)
         la = self.wait_label = QLabel(_('Loading %s, please wait...')%t)
@@ -1031,7 +1030,7 @@ class TOCEditor(QDialog):  # {{{
         self.resize(950, 630)
         geom = self.prefs.get('toc_editor_window_geom', None)
         if geom is not None:
-            self.restoreGeometry(bytes(geom))
+            QApplication.instance().safe_restore_geometry(self, bytes(geom))
         self.stacks.currentChanged.connect(self.update_history_buttons)
         self.update_history_buttons()
 

@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -104,7 +104,20 @@ def before_count(root, tag, limit=10):
             return limit
 
 
+def wrap_contents(tag_name, elem):
+    wrapper = elem.makeelement(tag_name)
+    wrapper.text, elem.text = elem.text, ''
+    for child in elem:
+        elem.remove(child)
+        wrapper.append(child)
+    elem.append(wrapper)
+
+
 def cleanup_markup(log, root, styles, dest_dir, detect_cover, XPath):
+    # Apply vertical-align
+    for span in root.xpath('//span[@data-docx-vert]'):
+        wrap_contents(span.attrib.pop('data-docx-vert'), span)
+
     # Move <hr>s outside paragraphs, if possible.
     pancestor = XPath('|'.join('ancestor::%s[1]' % x for x in ('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6')))
     for hr in root.xpath('//span/hr'):

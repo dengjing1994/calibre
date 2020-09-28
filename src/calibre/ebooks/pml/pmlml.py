@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
@@ -14,6 +14,7 @@ import re
 from lxml import etree
 
 from calibre.ebooks.pdb.ereader import image_name
+from calibre.utils.xml_parse import safe_xml_fromstring
 from calibre.ebooks.pml import unipmlcode
 from polyglot.builtins import unicode_type, string_or_bytes
 
@@ -138,7 +139,7 @@ class PMLMLizer(object):
             self.log.debug('Converting %s to PML markup...' % item.href)
             content = etree.tostring(item.data, encoding='unicode')
             content = self.prepare_text(content)
-            content = etree.fromstring(content)
+            content = safe_xml_fromstring(content)
             stylizer = Stylizer(content, item.href, self.oeb_book, self.opts, self.opts.output_profile)
             text.append(self.add_page_anchor(item))
             text += self.dump_text(content.find(XHTML('body')), stylizer, item)

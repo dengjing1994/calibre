@@ -1,9 +1,9 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
 
-import re
+
+import re, os
 from collections import namedtuple
 from functools import partial
 
@@ -13,7 +13,7 @@ from PyQt5.Qt import (
     QWidget, pyqtProperty, pyqtSignal
 )
 
-from calibre import fit_image
+from calibre import fit_image, sanitize_file_name
 from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.ebooks.metadata.book.base import Metadata, field_metadata
 from calibre.ebooks.metadata.book.render import mi_to_html
@@ -31,7 +31,7 @@ from calibre.gui2.dnd import (
 from calibre.gui2.widgets2 import HTMLDisplay
 from calibre.utils.config import tweaks
 from calibre.utils.img import blend_image, image_from_x
-from calibre.utils.localization import is_rtl
+from calibre.utils.localization import is_rtl, langnames_to_langcodes
 from calibre.utils.serialize import json_loads
 from polyglot.binary import from_hex_bytes
 from polyglot.builtins import unicode_type
@@ -99,6 +99,16 @@ def init_manage_action(ac, field, value):
     return ac
 
 
+def init_find_in_tag_browser(menu, ac, field, value):
+    from calibre.gui2.ui import get_gui
+    hidden_cats = get_gui().tags_view.model().hidden_categories
+    if field not in hidden_cats:
+        ac.setIcon(QIcon(I('search.png')))
+        ac.setText(_('Find %s in the Tag browser') % value)
+        ac.current_fmt = field, value
+        menu.addAction(ac)
+
+
 def render_html(mi, vertical, widget, all_fields=False, render_data_func=None, pref_name='book_display_fields'):  # {{{
     func = render_data_func or render_data
     try:
@@ -160,8 +170,11 @@ def get_field_list(fm, use_defaults=False, pref_name='book_display_fields'):
 def render_data(mi, use_roman_numbers=True, all_fields=False, pref_name='book_display_fields'):
     field_list = get_field_list(getattr(mi, 'field_metadata', field_metadata), pref_name=pref_name)
     field_list = [(x, all_fields or display) for x, display in field_list]
-    return mi_to_html(mi, field_list=field_list, use_roman_numbers=use_roman_numbers, rtl=is_rtl(),
-                      rating_font=rating_font(), default_author_link=default_author_link())
+    return mi_to_html(
+        mi, field_list=field_list, use_roman_numbers=use_roman_numbers, rtl=is_rtl(),
+        rating_font=rating_font(), default_author_link=default_author_link(),
+        comments_heading_pos=gprefs['book_details_comments_heading_pos'], for_qt=True
+    )
 
 # }}}
 
@@ -173,6 +186,7 @@ def add_format_entries(menu, data, book_info):
     from calibre.gui2.ui import get_gui
     book_id = int(data['book_id'])
     fmt = data['fmt']
+    init_find_in_tag_browser(menu, book_info.find_in_tag_browser_action, 'formats', fmt)
     db = get_gui().current_db.new_api
     ofmt = fmt.upper() if fmt.startswith('ORIGINAL_') else 'ORIGINAL_' + fmt
     nfmt = ofmt[len('ORIGINAL_'):]
@@ -209,7 +223,7 @@ def add_format_entries(menu, data, book_info):
         else:
             m.addSeparator()
             m.addAction(_('Add other application for %s files...') % fmt.upper(), partial(book_info.choose_open_with, book_id, fmt))
-            m.addAction(_('Edit Open With applications...'), partial(edit_programs, fmt, book_info))
+            m.addAction(_('Edit Open with applications...'), partial(edit_programs, fmt, book_info))
             menu.addMenu(m)
             menu.ow = m
         if fmt.upper() in SUPPORTED:
@@ -217,6 +231,8 @@ def add_format_entries(menu, data, book_info):
             menu.addAction(_('Edit %s...') % fmt.upper(), partial(book_info.edit_fmt, book_id, fmt))
     path = data['path']
     if path:
+        if data.get('fname'):
+            path = os.path.join(path, data['fname'] + '.' + data['fmt'].lower())
         ac = book_info.copy_link_action
         ac.current_url = path
         ac.setText(_('&Copy path to file'))
@@ -225,12 +241,19 @@ def add_format_entries(menu, data, book_info):
 
 def add_item_specific_entries(menu, data, book_info):
     search_internet_added = False
+    find_action = book_info.find_in_tag_browser_action
     dt = data['type']
     if dt == 'format':
         add_format_entries(menu, data, book_info)
     elif dt == 'author':
         author = data['name']
+        if data['url'] != 'calibre':
+            ac = book_info.copy_link_action
+            ac.current_url = data['url']
+            ac.setText(_('&Copy author link'))
+            menu.addAction(ac)
         menu.addAction(init_manage_action(book_info.manage_action, 'authors', author))
+        init_find_in_tag_browser(menu, find_action, 'authors', author)
         if hasattr(book_info, 'search_internet'):
             menu.sia = sia = create_search_internet_menu(book_info.search_internet, author)
             menu.addMenu(sia)
@@ -251,22 +274,32 @@ def add_item_specific_entries(menu, data, book_info):
         field = data.get('field')
         if field is not None:
             book_id = int(data['book_id'])
-            value = data['value']
+            value = remove_value = data['value']
             if field == 'identifiers':
+                ac = book_info.copy_link_action
+                ac.current_url = value
+                ac.setText(_('&Copy identifier'))
+                menu.addAction(ac)
+                remove_value = data['id_type']
+                init_find_in_tag_browser(menu, find_action, field, remove_value)
                 menu.addAction(book_info.edit_identifiers_action)
             elif field in ('tags', 'series', 'publisher') or is_category(field):
+                init_find_in_tag_browser(menu, find_action, field, value)
                 menu.addAction(init_manage_action(book_info.manage_action, field, value))
+            elif field == 'languages':
+                remove_value = langnames_to_langcodes((value,)).get(value, 'Unknown')
+                init_find_in_tag_browser(menu, find_action, field, value)
             ac = book_info.remove_item_action
-            ac.data = (field, value, book_id)
+            ac.data = (field, remove_value, book_id)
             ac.setText(_('Remove %s from this book') % value)
             menu.addAction(ac)
     return search_internet_added
 
 
-def details_context_menu_event(view, ev, book_info):
+def details_context_menu_event(view, ev, book_info, add_popup_action=False):
     url = view.anchorAt(ev.pos())
     menu = view.createStandardContextMenu()
-    menu.addAction(QIcon(I('edit-copy.png')), _('Copy &all'), partial(copy_all, book_info))
+    menu.addAction(QIcon(I('edit-copy.png')), _('Copy &all'), partial(copy_all, view))
     search_internet_added = False
     if url and url.startswith('action:'):
         data = json_loads(from_hex_bytes(url.split(':', 1)[1]))
@@ -283,9 +316,32 @@ def details_context_menu_event(view, ev, book_info):
     for ac in tuple(menu.actions()):
         if not ac.isEnabled():
             menu.removeAction(ac)
+    if add_popup_action:
+        menu.addSeparator()
+        ac = menu.addAction(_('Open the Book details window'))
+        ac.triggered.connect(book_info.show_book_info)
     if len(menu.actions()) > 0:
         menu.exec_(ev.globalPos())
 # }}}
+
+
+def create_open_cover_with_menu(self, parent_menu):
+    from calibre.gui2.open_with import populate_menu, edit_programs
+    m = QMenu(_('Open cover with...'))
+
+    def connect_action(ac, entry):
+        connect_lambda(ac.triggered, self, lambda self: self.open_with(entry))
+
+    populate_menu(m, connect_action, 'cover_image')
+    if len(m.actions()) == 0:
+        parent_menu.addAction(_('Open cover with...'), self.choose_open_with)
+    else:
+        m.addSeparator()
+        m.addAction(_('Add another application to open cover...'), self.choose_open_with)
+        m.addAction(_('Edit Open with applications...'), partial(edit_programs, 'cover_image', self))
+        parent_menu.ocw = m
+        parent_menu.addMenu(m)
+    return m
 
 
 class CoverView(QWidget):  # {{{
@@ -395,7 +451,6 @@ class CoverView(QWidget):  # {{{
             )
 
     def contextMenuEvent(self, ev):
-        from calibre.gui2.open_with import populate_menu, edit_programs
         cm = QMenu(self)
         paste = cm.addAction(_('Paste cover'))
         copy = cm.addAction(_('Copy cover'))
@@ -410,21 +465,7 @@ class CoverView(QWidget):  # {{{
         remove.triggered.connect(self.remove_cover)
         gc.triggered.connect(self.generate_cover)
         save.triggered.connect(self.save_cover)
-
-        m = QMenu(_('Open cover with...'))
-
-        def connect_action(ac, entry):
-            connect_lambda(ac.triggered, self, lambda self: self.open_with(entry))
-
-        populate_menu(m, connect_action, 'cover_image')
-        if len(m.actions()) == 0:
-            cm.addAction(_('Open cover with...'), self.choose_open_with)
-        else:
-            m.addSeparator()
-            m.addAction(_('Add another application to open cover...'), self.choose_open_with)
-            m.addAction(_('Edit Open with applications...'), partial(edit_programs, 'cover_image', self))
-            cm.ocw = m
-            cm.addMenu(m)
+        create_open_cover_with_menu(self, cm)
         cm.si = m = create_search_internet_menu(self.search_internet.emit)
         cm.addMenu(m)
         cm.exec_(ev.globalPos())
@@ -459,7 +500,7 @@ class CoverView(QWidget):  # {{{
         path = choose_save_file(
             self, 'save-cover-from-book-details', _('Choose cover save location'),
             filters=[(_('JPEG images'), ['jpg', 'jpeg'])], all_files=False,
-            initial_filename='{}.jpeg'.format(db.field_for('title', book_id, default_value='cover'))
+            initial_filename='{}.jpeg'.format(sanitize_file_name(db.field_for('title', book_id, default_value='cover')))
         )
         if path:
             db.copy_cover_to(book_id, path)
@@ -530,6 +571,7 @@ class BookInfo(HTMLDisplay):
     open_fmt_with = pyqtSignal(int, object, object)
     edit_book = pyqtSignal(int, object)
     edit_identifiers = pyqtSignal()
+    find_in_tag_browser = pyqtSignal(object, object)
 
     def __init__(self, vertical, parent=None):
         HTMLDisplay.__init__(self, parent)
@@ -540,6 +582,7 @@ class BookInfo(HTMLDisplay):
             ('restore_format', 'edit-undo.png'), ('copy_link','edit-copy.png'),
             ('compare_format', 'diff.png'),
             ('set_cover_format', 'default_cover.png'),
+            ('find_in_tag_browser', 'search.png')
         ]:
             ac = QAction(QIcon(I(icon)), '', self)
             ac.current_fmt = None
@@ -592,6 +635,10 @@ class BookInfo(HTMLDisplay):
     def copy_link_triggerred(self):
         self.context_action_triggered('copy_link')
 
+    def find_in_tag_browser_triggerred(self):
+        if self.find_in_tag_browser_action.current_fmt:
+            self.find_in_tag_browser.emit(*self.find_in_tag_browser_action.current_fmt)
+
     def manage_action_triggered(self):
         if self.manage_action.current_fmt:
             self.manage_category.emit(*self.manage_action.current_fmt)
@@ -614,7 +661,7 @@ class BookInfo(HTMLDisplay):
             return HTMLDisplay.mouseDoubleClickEvent(self, ev)
 
     def contextMenuEvent(self, ev):
-        details_context_menu_event(self, ev, self)
+        details_context_menu_event(self, ev, self, True)
 
     def open_with(self, book_id, fmt, entry):
         self.open_fmt_with.emit(book_id, fmt, entry)
@@ -744,12 +791,13 @@ class BookDetails(QWidget):  # {{{
     edit_identifiers = pyqtSignal()
     open_fmt_with = pyqtSignal(int, object, object)
     edit_book = pyqtSignal(int, object)
+    find_in_tag_browser = pyqtSignal(object, object)
 
     # Drag 'n drop {{{
 
     def dragEnterEvent(self, event):
         md = event.mimeData()
-        if dnd_has_extension(md, image_extensions() + BOOK_EXTENSIONS, allow_all_extensions=True) or \
+        if dnd_has_extension(md, image_extensions() + BOOK_EXTENSIONS, allow_all_extensions=True, allow_remote=True) or \
                 dnd_has_image(md):
             event.acceptProposedAction()
 
@@ -806,6 +854,7 @@ class BookDetails(QWidget):  # {{{
         self.cover_view.cover_removed.connect(self.cover_removed.emit)
         self._layout.addWidget(self.cover_view)
         self.book_info = BookInfo(vertical, self)
+        self.book_info.show_book_info = self.show_book_info
         self.book_info.search_internet = self.search_internet
         self.book_info.search_requested = self.search_requested.emit
         self._layout.addWidget(self.book_info)
@@ -820,6 +869,7 @@ class BookDetails(QWidget):  # {{{
         self.book_info.compare_format.connect(self.compare_specific_format)
         self.book_info.copy_link.connect(self.copy_link)
         self.book_info.manage_category.connect(self.manage_category)
+        self.book_info.find_in_tag_browser.connect(self.find_in_tag_browser)
         self.book_info.edit_identifiers.connect(self.edit_identifiers)
         self.setCursor(Qt.PointingHandCursor)
 

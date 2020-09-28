@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -248,22 +248,24 @@ class Styles(object):
                 if default_para.character_style is not None:
                     self.para_char_cache[p] = default_para.character_style
 
-            is_numbering = direct_formatting.numbering is not inherit
+            def has_numbering(block_style):
+                num_id, lvl = getattr(block_style, 'numbering_id', inherit), getattr(block_style, 'numbering_level', inherit)
+                return num_id is not None and num_id is not inherit and lvl is not None and lvl is not inherit
+
+            is_numbering = has_numbering(direct_formatting)
             is_section_break = is_section_break and not self.namespace.XPath('./w:r')(p)
+
             if is_numbering and not is_section_break:
-                num_id, lvl = direct_formatting.numbering
-                if num_id is not None:
-                    p.set('calibre_num_id', '%s:%s' % (lvl, num_id))
-                if num_id is not None and lvl is not None:
-                    ps = self.numbering.get_para_style(num_id, lvl)
-                    if ps is not None:
-                        parent_styles.append(ps)
+                num_id, lvl = direct_formatting.numbering_id, direct_formatting.numbering_level
+                p.set('calibre_num_id', '%s:%s' % (lvl, num_id))
+                ps = self.numbering.get_para_style(num_id, lvl)
+                if ps is not None:
+                    parent_styles.append(ps)
             if (
-                    not is_numbering and not is_section_break and linked_style is not None and getattr(
-                        linked_style.paragraph_style, 'numbering', inherit) is not inherit):
-                num_id, lvl = linked_style.paragraph_style.numbering
-                if num_id is not None:
-                    p.set('calibre_num_id', '%s:%s' % (lvl, num_id))
+                not is_numbering and not is_section_break and linked_style is not None and has_numbering(linked_style.paragraph_style)
+            ):
+                num_id, lvl = linked_style.paragraph_style.numbering_id, linked_style.paragraph_style.numbering_level
+                p.set('calibre_num_id', '%s:%s' % (lvl, num_id))
                 is_numbering = True
                 ps = self.numbering.get_para_style(num_id, lvl)
                 if ps is not None:
@@ -331,7 +333,7 @@ class Styles(object):
     def cascade(self, layers):
         self.body_font_family = 'serif'
         self.body_font_size = '10pt'
-        self.body_color = 'black'
+        self.body_color = 'currentColor'
 
         def promote_property(char_styles, block_style, prop):
             vals = {getattr(s, prop) for s in char_styles}
@@ -357,10 +359,12 @@ class Styles(object):
                     # The default text decoration is 'none'
                     s.text_decoration = inherit
 
-        def promote_most_common(block_styles, prop, default):
+        def promote_most_common(block_styles, prop, default, inherit_means=None):
             c = Counter()
             for s in block_styles:
                 val = getattr(s, prop)
+                if val is inherit and inherit_means is not None:
+                    val = inherit_means
                 if val is not inherit:
                     c[val] += 1
             val = None
@@ -368,6 +372,8 @@ class Styles(object):
                 val = c.most_common(1)[0][0]
                 for s in block_styles:
                     oval = getattr(s, prop)
+                    if oval is inherit and inherit_means is not None:
+                        oval = inherit_means
                     if oval is inherit:
                         if default != val:
                             setattr(s, prop, default)
@@ -385,7 +391,7 @@ class Styles(object):
         if fs is not None:
             self.body_font_size = '%.3gpt' % fs
 
-        color = promote_most_common(block_styles, 'color', self.body_color)
+        color = promote_most_common(block_styles, 'color', self.body_color, inherit_means='currentColor')
         if color is not None:
             self.body_color = color
 
@@ -395,12 +401,12 @@ class Styles(object):
         self.numbering = numbering
         for style in self:
             ps = style.paragraph_style
-            if ps is not None and ps.numbering is not inherit:
-                lvl = numbering.get_pstyle(ps.numbering[0], style.style_id)
+            if ps is not None and ps.numbering_id is not inherit:
+                lvl = numbering.get_pstyle(ps.numbering_id, style.style_id)
                 if lvl is None:
-                    ps.numbering = inherit
+                    ps.numbering_id = ps.numbering_level = inherit
                 else:
-                    ps.numbering = (ps.numbering[0], lvl)
+                    ps.numbering_level = lvl
 
     def apply_contextual_spacing(self, paras):
         last_para = None
@@ -447,7 +453,7 @@ class Styles(object):
         ef = self.fonts.embed_fonts(dest_dir, docx)
 
         s = '''\
-            body { font-family: %s; font-size: %s; color: %s }
+            body { font-family: %s; font-size: %s; %s }
 
             /* In word all paragraphs have zero margins unless explicitly specified in a style */
             p, h1, h2, h3, h4, h5, h6, div { margin: 0; padding: 0 }
@@ -490,7 +496,10 @@ class Styles(object):
                sub { vertical-align: bottom }
                '''
 
-        prefix = textwrap.dedent(s) % (self.body_font_family, self.body_font_size, self.body_color)
+        body_color = ''
+        if self.body_color.lower() not in ('currentcolor', 'inherit'):
+            body_color = 'color: {};'.format(self.body_color)
+        prefix = textwrap.dedent(s) % (self.body_font_family, self.body_font_size, body_color)
         if ef:
             prefix = ef + '\n' + prefix
 

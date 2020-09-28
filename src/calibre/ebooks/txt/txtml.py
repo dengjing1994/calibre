@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
@@ -67,6 +67,7 @@ class TXTMLizer(object):
     def mlize_spine(self):
         from calibre.ebooks.oeb.base import XHTML
         from calibre.ebooks.oeb.stylizer import Stylizer
+        from calibre.utils.xml_parse import safe_xml_fromstring
         output = [u'']
         output.append(self.get_toc())
         for item in self.oeb_book.spine:
@@ -76,7 +77,7 @@ class TXTMLizer(object):
                     x.text = x.text.replace('--', '__')
             content = etree.tostring(item.data, encoding='unicode')
             content = self.remove_newlines(content)
-            content = etree.fromstring(content)
+            content = safe_xml_fromstring(content)
             stylizer = Stylizer(content, item.href, self.oeb_book, self.opts, self.opts.output_profile)
             output += self.dump_text(content.find(XHTML('body')), stylizer, item)
             output += '\n\n\n\n\n\n'

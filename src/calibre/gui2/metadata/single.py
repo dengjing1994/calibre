@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -10,12 +10,12 @@ import os, errno
 from datetime import datetime
 from functools import partial
 
-from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
+from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QApplication,
         QGridLayout, pyqtSignal, QDialogButtonBox, QScrollArea, QFont, QCoreApplication,
         QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem, QInputDialog,
         QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut, QDialog)
 
-from calibre.constants import isosx
+from calibre.constants import ismacos
 from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.ebooks.metadata import authors_to_string, string_to_authors
 from calibre.gui2 import error_dialog, gprefs, pixmap_to_data
@@ -32,7 +32,7 @@ from calibre.utils.date import local_tz
 from calibre.library.comments import merge_comments as merge_two_comments
 from polyglot.builtins import iteritems, unicode_type, filter
 
-BASE_TITLE = _('Edit Metadata')
+BASE_TITLE = _('Edit metadata')
 fetched_fields = ('title', 'title_sort', 'authors', 'author_sort', 'series',
                   'series_index', 'languages', 'publisher', 'tags', 'rating',
                   'comments', 'pubdate')
@@ -120,7 +120,7 @@ class MetadataSingleDialogBase(QDialog):
         self.do_layout()
         geom = gprefs.get('metasingle_window_geometry3', None)
         if geom is not None:
-            self.restoreGeometry(bytes(geom))
+            QApplication.instance().safe_restore_geometry(self, bytes(geom))
         else:
             self.resize(self.sizeHint())
         self.restore_widget_settings()
@@ -158,7 +158,7 @@ class MetadataSingleDialogBase(QDialog):
               'change author sort from red to green.  There is a menu of '
               'functions available under this button. Click and hold '
               'on the button to see it.') + '</p>')
-        if isosx:
+        if ismacos:
             # Workaround for https://bugreports.qt-project.org/browse/QTBUG-41017
             class Menu(QMenu):
 
@@ -167,9 +167,9 @@ class MetadataSingleDialogBase(QDialog):
                     if ac is not None:
                         ac.trigger()
                     return QMenu.mouseReleaseEvent(self, ev)
-            b.m = m = Menu()
+            b.m = m = Menu(b)
         else:
-            b.m = m = QMenu()
+            b.m = m = QMenu(b)
         ac = m.addAction(QIcon(I('forward.png')), _('Set author sort from author'))
         ac2 = m.addAction(QIcon(I('back.png')), _('Set author from author sort'))
         ac3 = m.addAction(QIcon(I('user_profile.png')), _('Manage authors'))
@@ -235,6 +235,7 @@ class MetadataSingleDialogBase(QDialog):
         self.tags_editor_button.setToolTip(_('Open Tag editor'))
         self.tags_editor_button.setIcon(QIcon(I('chapters.png')))
         self.tags_editor_button.clicked.connect(self.tags_editor)
+        self.tags.tag_editor_requested.connect(self.tags_editor)
         self.clear_tags_button = QToolButton(self)
         self.clear_tags_button.setToolTip(_('Clear all tags'))
         self.clear_tags_button.setIcon(QIcon(I('trash.png')))
@@ -255,7 +256,7 @@ class MetadataSingleDialogBase(QDialog):
         b.setIcon(QIcon(I('edit-paste.png')))
         b.clicked.connect(self.identifiers.paste_identifier)
         b.setPopupMode(b.DelayedPopup)
-        b.setMenu(QMenu())
+        b.setMenu(QMenu(b))
         self.update_paste_identifiers_menu()
 
         self.publisher = PublisherEdit(self)
@@ -360,7 +361,7 @@ class MetadataSingleDialogBase(QDialog):
             tprefs.refresh()  # In case they were changed in a Tweak Book process
             from calibre.gui2 import question_dialog
             if tprefs['update_metadata_from_calibre'] and question_dialog(
-                    self, _('Save Changed Metadata?'),
+                    self, _('Save changed metadata?'),
                     _("You've changed the metadata for this book."
                       " Edit book is set to update embedded metadata when opened."
                       " You need to save your changes for them to be included."),
@@ -1219,8 +1220,8 @@ def edit_metadata(db, row_list, current_row, parent=None, view_slot=None, edit_s
 
 
 if __name__ == '__main__':
-    from calibre.gui2 import Application as QApplication
-    app = QApplication([])
+    from calibre.gui2 import Application
+    app = Application([])
     from calibre.library import db
     db = db()
     row_list = list(range(len(db.data)))

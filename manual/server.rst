@@ -153,7 +153,7 @@ The server interface
 The server interface is a simplified version of the main calibre interface,
 optimised for use with touch screens. The home screen shows you books
 you are currently reading as well as allowing to choose a calibre library you
-want to browse. The server in calibre 3 gives you access to all your libraries,
+want to browse. The server in calibre gives you access to all your libraries,
 not just a single one, as before.
 
 The book list
@@ -172,7 +172,7 @@ you can using the Tag browser in the main program.
 
 A much loved feature of the main program, :guilabel:`Virtual libraries` is
 present in the server interface as well. Click the three vertical dots in the
-top right corner to choose a virtual library.
+top right corner to choose a Virtual library.
 
 The book reader
 ^^^^^^^^^^^^^^^^
@@ -187,12 +187,6 @@ If you leave the Content server running, you can even open the same book on
 multiple devices and it will remember your last read position. If it does not
 you can force a sync by tapping in the top quarter and choosing
 :guilabel:`Sync`.
-
-.. note:: On initial release, the book reader is fully functional but is
-    missing some more advanced features from the main calibre viewer, such as
-    popup footnotes, bookmarks and annotations in general.
-    These will be added in due course. In fact, the browser reader is designed
-    to eventually replace the main viewer, once it matures.
 
 Browser support
 ------------------
@@ -294,7 +288,7 @@ Or, for Apache::
         ServerName myserver.example.com
         AllowEncodedSlashes On
         ProxyPreserveHost On
-        ProxyPass "/"  "http://localhost:8080"
+        ProxyPass "/"  "http://localhost:8080/"
     </VirtualHost>
 
 

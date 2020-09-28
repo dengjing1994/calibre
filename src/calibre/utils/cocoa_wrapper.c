@@ -7,6 +7,7 @@
 
 #include <Python.h>
 
+extern int cocoa_transient_scroller(void);
 extern double cocoa_cursor_blink_time(void);
 extern void cocoa_send_notification(const char *identitifer, const char *title, const char *subtitle, const char *informativeText, const char* path_to_image);
 extern const char* cocoa_send2trash(const char *utf8_path);
@@ -15,6 +16,12 @@ extern void disable_window_tabbing(void);
 extern void remove_cocoa_menu_items(void);
 
 static PyObject *notification_activated_callback = NULL;
+
+static PyObject*
+transient_scroller(PyObject *self) {
+    (void)self;
+    return PyBool_FromLong(cocoa_transient_scroller());
+}
 
 static PyObject*
 cursor_blink_time(PyObject *self) {
@@ -84,6 +91,7 @@ disable_cocoa_ui_elements(PyObject *self, PyObject *args) {
 
 
 static PyMethodDef module_methods[] = {
+    {"transient_scroller", (PyCFunction)transient_scroller, METH_NOARGS, ""},
     {"cursor_blink_time", (PyCFunction)cursor_blink_time, METH_NOARGS, ""},
     {"enable_cocoa_multithreading", (PyCFunction)enable_cocoa_multithreading, METH_NOARGS, ""},
     {"set_notification_activated_callback", (PyCFunction)set_notification_activated_callback, METH_O, ""},
@@ -94,9 +102,6 @@ static PyMethodDef module_methods[] = {
 };
 
 
-#if PY_MAJOR_VERSION >= 3
-#define INITERROR return NULL
-#define INITMODULE PyModule_Create(&bzzdec_module)
 static struct PyModuleDef cocoa_module = {
     /* m_base     */ PyModuleDef_HEAD_INIT,
     /* m_name     */ "cocoa",
@@ -109,17 +114,9 @@ static struct PyModuleDef cocoa_module = {
     /* m_free     */ 0,
 };
 CALIBRE_MODINIT_FUNC PyInit_cocoa(void) {
-#else
-#define INITERROR return
-#define INITMODULE Py_InitModule3("cocoa", module_methods, "")
-CALIBRE_MODINIT_FUNC initcocoa(void) {
-#endif
-
-    PyObject *m = INITMODULE;
+    PyObject *m = PyModule_Create(&cocoa_module);
     if (m == NULL) {
-        INITERROR;
+        return NULL;
     }
-#if PY_MAJOR_VERSION >= 3
     return m;
-#endif
 }

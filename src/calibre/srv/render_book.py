@@ -1,13 +1,11 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2016, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import json
 import os
 import re
-import shutil
 import sys
 import time
 from collections import defaultdict
@@ -15,10 +13,10 @@ from datetime import datetime
 from functools import partial
 from itertools import count
 from math import ceil
-from lxml.etree import Comment
 
 from css_parser import replaceUrls
 from css_parser.css import CSSRule
+from lxml.etree import Comment
 
 from calibre import detect_ncpus, force_unicode, prepare_string_for_xml
 from calibre.constants import iswindows, plugins
@@ -41,8 +39,8 @@ from calibre.ptempfile import PersistentTemporaryDirectory
 from calibre.srv.metadata import encode_datetime
 from calibre.srv.opts import grouper
 from calibre.utils.date import EPOCH
+from calibre.utils.filenames import rmtree
 from calibre.utils.ipc.simple_worker import start_pipe_worker
-from calibre.utils.iso8601 import parse_iso8601
 from calibre.utils.logging import default_log
 from calibre.utils.serialize import (
     json_dumps, json_loads, msgpack_dumps, msgpack_loads
@@ -52,7 +50,7 @@ from polyglot.binary import (
     as_base64_unicode as encode_component, from_base64_bytes,
     from_base64_unicode as decode_component
 )
-from polyglot.builtins import as_bytes, is_py3, iteritems, map, unicode_type
+from polyglot.builtins import as_bytes, iteritems, map, unicode_type
 from polyglot.urllib import quote, urlparse
 
 RENDER_VERSION = 1
@@ -106,7 +104,10 @@ def create_link_replacer(container, link_uid, changed):
                 return url
             changed.add(base)
             return resource_template.format(encode_url(base, frag))
-        purl = urlparse(url)
+        try:
+            purl = urlparse(url)
+        except Exception:
+            return url
         if purl.netloc or purl.query:
             return url
         if purl.scheme and purl.scheme != 'file':
@@ -130,11 +131,20 @@ def create_link_replacer(container, link_uid, changed):
 
 
 page_break_properties = ('page-break-before', 'page-break-after', 'page-break-inside')
+absolute_font_sizes = {
+    'xx-small': '0.5rem', 'x-small': '0.625rem', 'small': '0.8rem',
+    'medium': '1rem',
+    'large': '1.125rem', 'x-large': '1.5rem', 'xx-large': '2rem', 'xxx-large': '2.55rem'
+}
+nonstandard_writing_mode_property_names = ('-webkit-writing-mode', '-epub-writing-mode')
 
 
 def transform_declaration(decl):
     decl = StyleDeclaration(decl)
     changed = False
+    nonstandard_writing_mode_props = {}
+    standard_writing_mode_props = {}
+
     for prop, parent_prop in tuple(decl):
         if prop.name in page_break_properties:
             changed = True
@@ -145,11 +155,29 @@ def transform_declaration(decl):
                 decl.set_property(prefix + name, prop.value, prop.priority)
             decl.remove_property(prop, parent_prop)
         elif prop.name == 'font-size':
-            l, unit = parse_css_length(prop.value)
+            raw = prop.value
+            afs = absolute_font_sizes.get(raw)
+            if afs is not None:
+                changed = True
+                decl.change_property(prop, parent_prop, afs)
+                continue
+            l, unit = parse_css_length(raw)
             if unit in absolute_units:
                 changed = True
                 l = convert_fontsize(l, unit)
                 decl.change_property(prop, parent_prop, unicode_type(l) + 'rem')
+        elif prop.name in nonstandard_writing_mode_property_names:
+            nonstandard_writing_mode_props[prop.value] = prop.priority
+        elif prop.name == 'writing-mode':
+            standard_writing_mode_props[prop.value] = True
+
+    # Add standard writing-mode properties if they don't exist so that
+    # all of the browsers supported by the viewer work in vertical modes
+    for value, priority in nonstandard_writing_mode_props.items():
+        if value not in standard_writing_mode_props:
+            decl.set_property('writing-mode', value, priority)
+            changed = True
+
     return changed
 
 
@@ -369,6 +397,7 @@ def transform_svg_image(container, name, link_uid, virtualize_resources, virtual
 
 def transform_html(container, name, virtualize_resources, link_uid, link_to_map, virtualized_names):
     link_xpath = XPath('//h:a[@href]')
+    svg_link_xpath = XPath('//svg:a')
     img_xpath = XPath('//h:img[@src]')
     res_link_xpath = XPath('//h:link[@href]')
     root = container.parsed(name)
@@ -404,14 +433,23 @@ def transform_html(container, name, virtualize_resources, link_uid, link_to_map,
     if virtualize_resources:
         virtualize_html(container, name, link_uid, link_to_map, virtualized_names)
     else:
-        for a in link_xpath(root):
-            href = link_replacer(name, a.get('href'))
+
+        def handle_link(a, attr='href'):
+            href = a.get(attr)
+            if href:
+                href = link_replacer(name, href)
             if href and href.startswith(link_uid):
-                a.set('href', 'javascript:void(0)')
+                a.set(attr, 'javascript:void(0)')
                 parts = decode_url(href.split('|')[1])
                 lname, lfrag = parts[0], parts[1]
                 link_to_map.setdefault(lname, {}).setdefault(lfrag or '', set()).add(name)
                 a.set('data-' + link_uid, json.dumps({'name':lname, 'frag':lfrag}, ensure_ascii=False))
+
+        for a in link_xpath(root):
+            handle_link(a)
+        xhref = XLINK('href')
+        for a in svg_link_xpath(root):
+            handle_link(a, xhref)
 
     shtml = html_as_json(root)
     with container.open(name, 'wb') as f:
@@ -448,11 +486,11 @@ class RenderManager(object):
                     p.kill()
         del self.workers
         try:
-            shutil.rmtree(self.tdir)
+            rmtree(self.tdir)
         except EnvironmentError:
             time.sleep(0.1)
             try:
-                shutil.rmtree(self.tdir)
+                rmtree(self.tdir)
             except EnvironmentError:
                 pass
         del self.tdir
@@ -518,22 +556,30 @@ def virtualize_html(container, name, link_uid, link_to_map, virtualized_names):
 
     changed = set()
     link_xpath = XPath('//h:a[@href]')
+    svg_link_xpath = XPath('//svg:a')
     link_replacer = create_link_replacer(container, link_uid, changed)
 
     virtualized_names.add(name)
     root = container.parsed(name)
     rewrite_links(root, partial(link_replacer, name))
-    for a in link_xpath(root):
-        href = a.get('href')
+
+    def handle_link(a, attr='href'):
+        href = a.get(attr) or ''
         if href.startswith(link_uid):
-            a.set('href', 'javascript:void(0)')
+            a.set(attr, 'javascript:void(0)')
             parts = decode_url(href.split('|')[1])
             lname, lfrag = parts[0], parts[1]
             link_to_map.setdefault(lname, {}).setdefault(lfrag or '', set()).add(name)
             a.set('data-' + link_uid, json.dumps({'name':lname, 'frag':lfrag}, ensure_ascii=False))
-        else:
+        elif href:
             a.set('target', '_blank')
             a.set('rel', 'noopener noreferrer')
+
+    for a in link_xpath(root):
+        handle_link(a)
+    xhref = XLINK('href')
+    for a in svg_link_xpath(root):
+        handle_link(a, xhref)
 
     return name in changed
 
@@ -609,6 +655,12 @@ def process_exploded_book(
     spineq = frozenset(spine)
     landmarks = [l for l in get_landmarks(container) if l['dest'] in spineq]
 
+    page_progression_direction = None
+    try:
+        page_progression_direction = container.opf_xpath('//opf:spine/@page-progression-direction')[0]
+    except IndexError:
+        pass
+
     book_render_data = {
         'version': RENDER_VERSION,
         'toc':toc,
@@ -625,6 +677,7 @@ def process_exploded_book(
         'toc_anchor_map': toc_anchor_map(toc),
         'landmarks': landmarks,
         'link_to_map': {},
+        'page_progression_direction': page_progression_direction,
     }
 
     names = sorted(
@@ -705,38 +758,6 @@ known_tags = ('img', 'script', 'link', 'image', 'style')
 discarded_tags = ('meta', 'base')
 
 
-def serialize_elem(elem, nsmap):
-    ns, name = split_name(elem.tag)
-    nl = name.lower()
-    if nl in discarded_tags:
-        # Filter out <meta> tags as they have unknown side-effects
-        # Filter out <base> tags as the viewer uses <base> for URL resolution
-        return
-    if nl in known_tags:
-        name = nl
-    ans = {'n':name}
-    if elem.text:
-        ans['x'] = elem.text
-    if elem.tail:
-        ans['l'] = elem.tail
-    if ns:
-        ns = nsmap[ns]
-        if ns:
-            ans['s'] = ns
-    attribs = []
-    for attr, val in elem.items():
-        attr_ns, aname = split_name(attr)
-        attrib = aname, val
-        if attr_ns:
-            attr_ns = nsmap[attr_ns]
-            if attr_ns:
-                attrib = aname, val, attr_ns
-        attribs.append(attrib)
-    if attribs:
-        ans['a'] = attribs
-    return ans
-
-
 def ensure_body(root):
     # Make sure we have only a single <body>
     bodies = list(root.iterchildren(XHTML('body')))
@@ -759,54 +780,18 @@ def html_as_json(root):
     if ns not in (None, XHTML_NS):
         raise ValueError('HTML tag must be in empty or XHTML namespace')
     ensure_body(root)
+    pl, err = plugins['html_as_json']
+    if err:
+        raise SystemExit('Failed to load html_as_json plugin with error: {}'.format(err))
     try:
-        serialize = plugins['html_as_json'][0].serialize
-    except (KeyError, AttributeError):
-        return as_bytes(json.dumps(html_as_dict(root), ensure_ascii=False, separators=(',', ':')))
+        serialize = pl.serialize
+    except AttributeError:
+        raise SystemExit('You are running calibre from source, you need to also update the main calibre installation to version >=4.3')
     for child in tuple(root.iterchildren('*')):
         if child.tag.partition('}')[-1] not in ('head', 'body'):
             root.remove(child)
     root.text = root.tail = None
     return serialize(root, Comment)
-
-
-def html_as_dict(root):
-    for child in tuple(root.iterchildren('*')):
-        if child.tag.partition('}')[-1] not in ('head', 'body'):
-            root.remove(child)
-    root.text = root.tail = None
-    if is_py3:
-        nsmap = defaultdict(count().__next__)
-    else:
-        nsmap = defaultdict(count().next)
-    nsmap[XHTML_NS]
-    tags = [serialize_elem(root, nsmap)]
-    tree = [0]
-    stack = [(root, tree)]
-    while stack:
-        elem, node = stack.pop()
-        prev_child_node = None
-        for child in elem.iterchildren():
-            tag = getattr(child, 'tag', None)
-            if tag is None or callable(tag):
-                tail = getattr(child, 'tail', None)
-                if tail:
-                    if prev_child_node is None:
-                        parent_node = node[-1]
-                        parent_node = tags[parent_node]
-                        parent_node['x'] = parent_node.get('x', '') + tail
-                    else:
-                        prev_child_node['l'] = prev_child_node.get('l', '') + tail
-            else:
-                cnode = serialize_elem(child, nsmap)
-                if cnode is not None:
-                    tags.append(cnode)
-                    child_tree_node = [len(tags)-1]
-                    node.append(child_tree_node)
-                    stack.append((child, child_tree_node))
-                    prev_child_node = cnode
-    ns_map = [ns for ns, nsnum in sorted(iteritems(nsmap), key=lambda x: x[1])]
-    return {'ns_map':ns_map, 'tag_map':tags, 'tree':tree}
 
 
 def serialize_datetimes(d):
@@ -820,25 +805,13 @@ def serialize_datetimes(d):
 EPUB_FILE_TYPE_MAGIC = b'encoding=json+base64:\n'
 
 
-def parse_annotation(annot):
-    ts = annot['timestamp']
-    if hasattr(ts, 'rstrip'):
-        annot['timestamp'] = parse_iso8601(ts, assume_utc=True)
-    return annot
-
-
-def parse_annotations(raw):
-    for annot in json_loads(raw):
-        yield parse_annotation(annot)
-
-
 def get_stored_annotations(container, bookmark_data):
     raw = bookmark_data or b''
     if not raw:
         return
     if raw.startswith(EPUB_FILE_TYPE_MAGIC):
         raw = raw[len(EPUB_FILE_TYPE_MAGIC):].replace(b'\n', b'')
-        for annot in parse_annotations(from_base64_bytes(raw)):
+        for annot in json_loads(from_base64_bytes(raw)):
             yield annot
         return
 
@@ -855,6 +828,7 @@ def get_stored_annotations(container, bookmark_data):
 
 
 def render(pathtoebook, output_dir, book_hash=None, serialize_metadata=False, extract_annotations=False, virtualize_resources=True, max_workers=1):
+    pathtoebook = os.path.abspath(pathtoebook)
     with RenderManager(max_workers) as render_manager:
         mi = None
         if serialize_metadata:
@@ -928,5 +902,15 @@ def profile():
         )
 
 
+def develop():
+    from calibre.ptempfile import TemporaryDirectory
+    path = sys.argv[-1]
+    with TemporaryDirectory() as tdir:
+        return render(
+            path, tdir, serialize_metadata=True,
+            extract_annotations=True, virtualize_resources=False, max_workers=1
+        )
+
+
 if __name__ == '__main__':
-    profile()
+    develop()

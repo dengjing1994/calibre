@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -146,6 +146,8 @@ class Widget(QWidget):
         ret = self.get_value_handler(g)
         if ret != 'this is a dummy return value, xcswx1avcx4x':
             return ret
+        if hasattr(g, 'get_value_for_config'):
+            return g.get_value_for_config
         if isinstance(g, (QSpinBox, QDoubleSpinBox)):
             return g.value()
         elif isinstance(g, (QLineEdit, QTextEdit, QPlainTextEdit)):
@@ -217,6 +219,9 @@ class Widget(QWidget):
         from calibre.gui2.convert.regex_builder import RegexEdit
         from calibre.gui2.widgets import EncodingComboBox
         if self.set_value_handler(g, val):
+            return
+        if hasattr(g, 'set_value_for_config'):
+            g.set_value_for_config = val
             return
         if isinstance(g, (QSpinBox, QDoubleSpinBox)):
             g.setValue(val)

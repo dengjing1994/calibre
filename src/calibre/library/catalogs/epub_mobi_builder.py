@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2010, Greg Riker
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import datetime
 import os
@@ -20,7 +20,8 @@ from calibre import (
     as_unicode, force_unicode, isbytestring, prepare_string_for_xml,
     replace_entities, strftime, xml_replace_entities
 )
-from calibre.constants import cache_dir, isosx
+from calibre.constants import cache_dir, ismacos
+from calibre.utils.xml_parse import safe_xml_fromstring
 from calibre.customize.conversion import DummyReporter
 from calibre.customize.ui import output_profiles
 from calibre.ebooks.BeautifulSoup import BeautifulSoup, NavigableString, prettify
@@ -348,7 +349,7 @@ class CatalogBuilder(object):
         if self.opts.generate_titles:
             self.generate_ncx_by_title(_("Titles"))
         if self.opts.generate_series:
-            self.generate_ncx_by_series(_("Series"))
+            self.generate_ncx_by_series(ngettext('Series', 'Series', 2))
         if self.opts.generate_genres:
             self.generate_ncx_by_genre(_("Genres"))
         if self.opts.generate_recently_added:
@@ -631,7 +632,7 @@ class CatalogBuilder(object):
 
                 # Handle condition where bools_are_tristate is False,
                 # field is a bool and contents is None, which is displayed as No
-                if (not self.db.prefs.get('bools_are_tristate') and
+                if (not self.db.new_api.pref('bools_are_tristate') and
                     self.db.metadata_for_field(rule['field'])['datatype'] == 'bool' and
                     field_contents is None):
                     field_contents = _('False')
@@ -705,7 +706,7 @@ class CatalogBuilder(object):
                 c = item
 
             ordnum, ordlen = collation_order(c)
-            if isosx and platform.mac_ver()[0] < '10.8':
+            if ismacos and platform.mac_ver()[0] < '10.8':
                 # Hackhackhackhackhack
                 # icu returns bogus results with curly apostrophes, maybe others under OS X 10.6.x
                 # When we see the magic combo of 0/-1 for ordnum/ordlen, special case the logic
@@ -1069,7 +1070,7 @@ class CatalogBuilder(object):
 
         if self.DEBUG:
             if self.prefix_rules:
-                self.opts.log.info(" Added prefixes (bools_are_tristate: {0}):".format(self.db.prefs.get('bools_are_tristate')))
+                self.opts.log.info(" Added prefixes (bools_are_tristate: {0}):".format(self.db.new_api.pref('bools_are_tristate')))
             else:
                 self.opts.log.info(" No added prefixes")
 
@@ -2353,7 +2354,7 @@ class CatalogBuilder(object):
          content/BySeries.html (file)
 
         """
-        friendly_name = _("Series")
+        friendly_name = ngettext('Series', 'Series', 2)
         self.update_progress_full_step("%s HTML" % friendly_name)
 
         self.opts.sort_by = 'series'
@@ -2745,7 +2746,10 @@ class CatalogBuilder(object):
         # Date of publication
         if book['date']:
             pubdate = book['date']
-            pubmonth, pubyear = pubdate.split()
+            try:
+                pubmonth, pubyear = pubdate.split()
+            except Exception:
+                pubmonth = pubyear = ''
         else:
             pubdate = pubyear = pubmonth = ''
 
@@ -2780,7 +2784,7 @@ class CatalogBuilder(object):
 
         # Comments
         comments = ''
-        if 'description' in book and book['description'] > '':
+        if book.get('description'):
             comments = book['description']
 
         # >>>> Populate the template <<<<
@@ -2992,7 +2996,7 @@ class CatalogBuilder(object):
             <navMap/>
             </ncx>
         '''
-        root = self.ncx_root = etree.fromstring(header)
+        root = self.ncx_root = safe_xml_fromstring(header)
         navMapTag = root[0]
 
         if self.generate_for_kindle_mobi:
@@ -3668,7 +3672,7 @@ class CatalogBuilder(object):
                 lang=prepare_string_for_xml(lang),
                 pt="periodical:default" if self.generate_for_kindle_mobi else ""
         )
-        root = etree.fromstring(header)
+        root = safe_xml_fromstring(header)
         manifest = root.xpath('//*[local-name()="manifest"]')[0]
         spine = root.xpath('//*[local-name()="spine"]')[0]
         guide = root.xpath('//*[local-name()="guide"]')[0]

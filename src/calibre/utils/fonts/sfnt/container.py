@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 # License: GPLv3 Copyright: 2012, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 from collections import OrderedDict
 from io import BytesIO
@@ -14,7 +14,7 @@ from calibre.utils.fonts.sfnt.errors import UnsupportedFont
 from calibre.utils.fonts.sfnt.glyf import GlyfTable
 from calibre.utils.fonts.sfnt.gsub import GSUBTable
 from calibre.utils.fonts.sfnt.head import (
-    HeadTable, HorizontalHeader, OS2Table, PostTable
+    HeadTable, HorizontalHeader, OS2Table, PostTable, VerticalHeader
 )
 from calibre.utils.fonts.sfnt.kern import KernTable
 from calibre.utils.fonts.sfnt.loca import LocaTable
@@ -29,6 +29,7 @@ class Sfnt(object):
     TABLE_MAP = {
         b'head' : HeadTable,
         b'hhea' : HorizontalHeader,
+        b'vhea' : VerticalHeader,
         b'maxp' : MaxpTable,
         b'loca' : LocaTable,
         b'glyf' : GlyfTable,

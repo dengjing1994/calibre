@@ -1,4 +1,4 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -15,7 +15,7 @@ from threading import Lock, RLock
 
 from PyQt5.Qt import (
     QT_VERSION, QApplication, QBuffer, QByteArray, QCoreApplication, QDateTime,
-    QDesktopServices, QDialog, QEvent, QFileDialog, QFileIconProvider, QFileInfo,
+    QDesktopServices, QDialog, QEvent, QFileDialog, QFileIconProvider, QFileInfo, QPalette,
     QFont, QFontDatabase, QFontInfo, QFontMetrics, QIcon, QLocale, QColor,
     QNetworkProxyFactory, QObject, QSettings, QSocketNotifier, QStringListModel, Qt,
     QThread, QTimer, QTranslator, QUrl, pyqtSignal
@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import QStyle  # Gives a nicer error message than import fr
 from calibre import as_unicode, prints
 from calibre.constants import (
     DEBUG, __appname__ as APP_UID, __version__, config_dir, filesystem_encoding,
-    is_running_from_develop, isbsd, isfrozen, islinux, isosx, iswindows, isxp,
+    is_running_from_develop, isbsd, isfrozen, islinux, ismacos, iswindows, isxp,
     plugins, plugins_loc
 )
 from calibre.ebooks.metadata import MetaInformation
@@ -69,7 +69,7 @@ native_menubar_defaults = {
 
 def create_defs():
     defs = gprefs.defaults
-    if isosx:
+    if ismacos:
         defs['action-layout-menubar'] = native_menubar_defaults['action-layout-menubar']
         defs['action-layout-menubar-device'] = native_menubar_defaults['action-layout-menubar-device']
         defs['action-layout-toolbar'] = (
@@ -147,9 +147,10 @@ def create_defs():
     defs['blocked_auto_formats'] = []
     defs['auto_add_auto_convert'] = True
     defs['auto_add_everything'] = False
-    defs['ui_style'] = 'calibre' if iswindows or isosx else 'system'
+    defs['ui_style'] = 'calibre' if iswindows or ismacos else 'system'
     defs['tag_browser_old_look'] = False
     defs['tag_browser_hide_empty_categories'] = False
+    defs['tag_browser_always_autocollapse'] = False
     defs['book_list_tooltips'] = True
     defs['show_layout_buttons'] = False
     defs['bd_show_cover'] = True
@@ -186,11 +187,15 @@ def create_defs():
     defs['qv_dclick_changes_column'] = True
     defs['qv_retkey_changes_column'] = True
     defs['qv_follows_column'] = False
-    defs['book_details_narrow_comments_layout'] = 'float'
+    defs['book_details_comments_heading_pos'] = 'hide'
     defs['book_list_split'] = False
     defs['wrap_toolbar_text'] = False
     defs['dnd_merge'] = True
     defs['booklist_grid'] = False
+    defs['browse_annots_restrict_to_user'] = None
+    defs['browse_annots_restrict_to_type'] = None
+    defs['browse_annots_use_stemmer'] = True
+    defs['annots_export_format'] = 'txt'
 
 
 create_defs()
@@ -198,7 +203,7 @@ del create_defs
 # }}}
 
 UNDEFINED_QDATETIME = QDateTime(UNDEFINED_DATE)
-
+QT_HIDDEN_CLEAR_ACTION = '_q_qlineeditclearaction'
 ALL_COLUMNS = ['title', 'ondevice', 'authors', 'size', 'timestamp', 'rating', 'publisher',
         'tags', 'series', 'pubdate']
 
@@ -392,21 +397,26 @@ def error_dialog(parent, title, msg, det_msg='', show=False,
 
 
 def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
-        default_yes=True,
-        # Skippable dialogs
-        # Set skip_dialog_name to a unique name for this dialog
-        # Set skip_dialog_msg to a message displayed to the user
-        skip_dialog_name=None, skip_dialog_msg=_('Show this confirmation again'),
-        skip_dialog_skipped_value=True, skip_dialog_skip_precheck=True,
-        # Override icon (QIcon to be used as the icon for this dialog or string for I())
-        override_icon=None,
-        # Change the text/icons of the yes and no buttons.
-        # The icons must be QIcon objects or strings for I()
-        yes_text=None, no_text=None, yes_icon=None, no_icon=None,
-    ):
+    default_yes=True,
+    # Skippable dialogs
+    # Set skip_dialog_name to a unique name for this dialog
+    # Set skip_dialog_msg to a message displayed to the user
+    skip_dialog_name=None, skip_dialog_msg=_('Show this confirmation again'),
+    skip_dialog_skipped_value=True, skip_dialog_skip_precheck=True,
+    # Override icon (QIcon to be used as the icon for this dialog or string for I())
+    override_icon=None,
+    # Change the text/icons of the yes and no buttons.
+    # The icons must be QIcon objects or strings for I()
+    yes_text=None, no_text=None, yes_icon=None, no_icon=None,
+):
     from calibre.gui2.dialogs.message_box import MessageBox
 
-    auto_skip = set(gprefs.get('questions_to_auto_skip', []))
+    if not isinstance(skip_dialog_name, unicode_type):
+        skip_dialog_name = None
+    try:
+        auto_skip = set(gprefs.get('questions_to_auto_skip', ()))
+    except Exception:
+        auto_skip = set()
     if (skip_dialog_name is not None and skip_dialog_name in auto_skip):
         return bool(skip_dialog_skipped_value)
 
@@ -653,7 +663,7 @@ if iswindows and 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ:
     from calibre.gui2.win_file_dialogs import is_ok as has_windows_file_dialog_helper
     has_windows_file_dialog_helper = has_windows_file_dialog_helper()
 has_linux_file_dialog_helper = False
-if not iswindows and not isosx and 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ and getattr(sys, 'frozen', False):
+if not iswindows and not ismacos and 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ and getattr(sys, 'frozen', False):
     has_linux_file_dialog_helper = check_for_linux_native_dialogs()
 
 if has_windows_file_dialog_helper:
@@ -669,8 +679,7 @@ else:
 def is_dark_theme():
     pal = QApplication.instance().palette()
     col = pal.color(pal.Window)
-    h, s, v, a = col.getHsvF()
-    return v < 0.45
+    return max(col.getRgb()[:3]) < 115
 
 
 def choose_osx_app(window, name, title, default_dir='/Applications'):
@@ -829,7 +838,11 @@ def setup_unix_signals(self):
         cloexec_flag = getattr(fcntl, 'FD_CLOEXEC', 1)
         for fd in (read_fd, write_fd):
             flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-            fcntl.fcntl(fd, fcntl.F_SETFD, flags | cloexec_flag | os.O_NONBLOCK)
+            if flags != -1:
+                fcntl.fcntl(fd, fcntl.F_SETFD, flags | cloexec_flag)
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            if flags != -1:
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
     original_handlers = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -870,7 +883,7 @@ class Application(QApplication):
         self.pi, pi_err = plugins['progress_indicator']
         if pi_err:
             raise RuntimeError('Failed to load the progress_indicator C extension, with error: {}'.format(pi_err))
-        if not isosx and not headless:
+        if not ismacos and not headless:
             # On OS X high dpi scaling is turned on automatically by the OS, so we dont need to set it explicitly
             setup_hidpi()
         QApplication.setOrganizationName('calibre-ebook.com')
@@ -881,7 +894,10 @@ class Application(QApplication):
             QApplication.setDesktopFileName(override_program_name)
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)  # needed for webengine
         QApplication.__init__(self, qargs)
-        if isosx:
+        sh = self.styleHints()
+        if hasattr(sh, 'setShowShortcutsInContextMenus'):
+            sh.setShowShortcutsInContextMenus(True)
+        if ismacos:
             plugins['cocoa'][0].disable_cocoa_ui_elements()
         self.setAttribute(Qt.AA_UseHighDpiPixmaps)
         self.setAttribute(Qt.AA_SynthesizeTouchForUnhandledMouseEvents, False)
@@ -913,7 +929,7 @@ class Application(QApplication):
             if s is not None:
                 font.setStretch(s)
             QApplication.setFont(font)
-        if not isosx and not iswindows:
+        if not ismacos and not iswindows:
             # Qt 5.10.1 on Linux resets the global font on first event loop tick.
             # So workaround it by setting the font once again in a timer.
             font_from_prefs = self.font()
@@ -931,7 +947,7 @@ class Application(QApplication):
         self._file_open_paths = []
         self._file_open_lock = RLock()
 
-        if not isosx:
+        if not ismacos:
             # OS X uses a native color dialog that does not support custom
             # colors
             self.color_prefs = color_prefs
@@ -959,13 +975,29 @@ class Application(QApplication):
             # Qt 5 bug: https://bugreports.qt-project.org/browse/QTBUG-41125
             self.aboutToQuit.connect(self.flush_clipboard)
 
-        if isosx:
+        if ismacos:
             cocoa, err = plugins['cocoa']
             if err:
                 raise RuntimeError('Failed to load cocoa plugin with error: {}'.format(err))
             cft = cocoa.cursor_blink_time()
             if cft >= 0:
                 self.setCursorFlashTime(int(cft))
+
+    def safe_restore_geometry(self, widget, geom):
+        # See https://bugreports.qt.io/browse/QTBUG-77385
+        if not geom:
+            return
+        restored = widget.restoreGeometry(geom)
+        self.ensure_window_on_screen(widget)
+        return restored
+
+    def ensure_window_on_screen(self, widget):
+        screen_rect = self.desktop().availableGeometry(widget)
+        if not widget.geometry().intersects(screen_rect):
+            w = min(widget.width(), screen_rect.width() - 10)
+            h = min(widget.height(), screen_rect.height() - 10)
+            widget.resize(w, h)
+            widget.move((screen_rect.width() - w) // 2, (screen_rect.height() - h) // 2)
 
     def setup_ui_font(self):
         f = QFont(QApplication.font())
@@ -988,7 +1020,7 @@ class Application(QApplication):
         try:
             if self.clipboard().ownsClipboard():
                 import ctypes
-                ctypes.WinDLL(b'ole32.dll').OleFlushClipboard()
+                ctypes.WinDLL('ole32.dll').OleFlushClipboard()
         except Exception:
             import traceback
             traceback.print_exc()
@@ -1001,13 +1033,28 @@ class Application(QApplication):
 
         load_builtin_fonts()
 
+    def set_dark_mode_palette(self):
+        from calibre.gui2.palette import dark_palette
+        self.set_palette(dark_palette())
+
     def setup_styles(self, force_calibre_style):
-        if iswindows or isosx:
+        if iswindows or ismacos:
             using_calibre_style = gprefs['ui_style'] != 'system'
         else:
             using_calibre_style = os.environ.get('CALIBRE_USE_SYSTEM_THEME', '0') == '0'
         if force_calibre_style:
             using_calibre_style = True
+        if using_calibre_style:
+            use_dark_palette = False
+            if 'CALIBRE_USE_DARK_PALETTE' in os.environ:
+                if not ismacos:
+                    use_dark_palette = os.environ['CALIBRE_USE_DARK_PALETTE'] != '0'
+            else:
+                if iswindows:
+                    use_dark_palette = windows_is_system_dark_mode_enabled()
+            if use_dark_palette:
+                self.set_dark_mode_palette()
+
         self.using_calibre_style = using_calibre_style
         if DEBUG:
             prints('Using calibre Qt style:', self.using_calibre_style)
@@ -1016,32 +1063,37 @@ class Application(QApplication):
         self.paletteChanged.connect(self.on_palette_change)
         self.on_palette_change()
 
-    def fix_dark_theme_colors(self):
-        self.is_dark_theme = is_dark_theme()
-        if self.is_dark_theme:
-            pal = self.palette()
-            # dark blue is unreadable when using dark backgrounds
-            pal.setColor(pal.Link, QColor('#6CB4EE'))
-            # alternating row colors look awful in most dark mode themes
-            pal.setColor(pal.AlternateBase, pal.color(pal.Base))
-            if isosx and self.using_calibre_style:
-                # Workaround for https://bugreports.qt.io/browse/QTBUG-75321
-                # Buttontext is set to black for some reason
-                pal.setColor(pal.ButtonText, pal.color(pal.WindowText))
-            self.set_palette(pal)
+    def fix_combobox_text_color(self):
+        # Workaround for https://bugreports.qt.io/browse/QTBUG-75321
+        # Buttontext is set to black for some reason
+        pal = QPalette(self.palette())
+        pal.setColor(pal.ButtonText, pal.color(pal.WindowText))
+        self.ignore_palette_changes = True
+        self.setPalette(pal, 'QComboBox')
+        self.ignore_palette_changes = False
 
     def set_palette(self, pal):
         self.ignore_palette_changes = True
         self.setPalette(pal)
         # Needed otherwise Qt does not emit the paletteChanged signal when
-        # appearance is changed.
-        self.setAttribute(Qt.AA_SetPalette, False)
+        # appearance is changed. And it has to be after current event
+        # processing finishes as of Qt 5.14 otherwise the palette change is
+        # ignored.
+        QTimer.singleShot(1000, lambda: QApplication.instance().setAttribute(Qt.AA_SetPalette, False))
         self.ignore_palette_changes = False
 
     def on_palette_change(self):
         if self.ignore_palette_changes:
             return
-        self.fix_dark_theme_colors()
+        self.is_dark_theme = is_dark_theme()
+        self.setProperty('is_dark_theme', self.is_dark_theme)
+        if ismacos and self.is_dark_theme and self.using_calibre_style:
+            QTimer.singleShot(0, self.fix_combobox_text_color)
+        if self.using_calibre_style:
+            ss = 'QTabBar::tab:selected { font-style: italic }\n\n'
+            if self.is_dark_theme:
+                ss += 'QMenu { border: 1px solid palette(shadow); }'
+            self.setStyleSheet(ss)
         self.palette_changed.emit()
 
     def stylesheet_for_line_edit(self, is_error=False):
@@ -1068,6 +1120,8 @@ class Application(QApplication):
             'MessageBoxQuestion': 'dialog_question.png',
             'BrowserReload': 'view-refresh.png',
             'LineEditClearButton': 'clear_left.png',
+            'ToolBarHorizontalExtensionButton': 'v-ellipsis.png',
+            'ToolBarVerticalExtensionButton': 'h-ellipsis.png',
         }):
             if v not in pcache:
                 p = I(v)
@@ -1077,7 +1131,12 @@ class Application(QApplication):
                 pcache[v] = p
             v = pcache[v]
             icon_map[getattr(QStyle, 'SP_'+k)] = v
-        self.pi.load_style(icon_map)
+        transient_scroller = 0
+        if ismacos:
+            transient_scroller = plugins['cocoa'][0].transient_scroller()
+        icon_map[QStyle.SP_CustomBase + 1] = I('close-for-light-theme.png')
+        icon_map[QStyle.SP_CustomBase + 2] = I('close-for-dark-theme.png')
+        self.pi.load_style(icon_map, transient_scroller)
 
     def _send_file_open_events(self):
         with self._file_open_lock:
@@ -1111,7 +1170,7 @@ class Application(QApplication):
 
     @current_custom_colors.setter
     def current_custom_colors(self, colors):
-        from PyQt5.Qt import QColorDialog, QColor
+        from PyQt5.Qt import QColorDialog
         num = min(len(colors), QColorDialog.customCount())
         for i in range(num):
             QColorDialog.setCustomColor(i, QColor(*colors[i]))
@@ -1156,7 +1215,7 @@ def sanitize_env_vars():
         env_vars = {'LD_LIBRARY_PATH':'/lib'}
     elif iswindows:
         env_vars = {}
-    elif isosx:
+    elif ismacos:
         env_vars = {k:None for k in (
                     'FONTCONFIG_FILE FONTCONFIG_PATH SSL_CERT_FILE').split()}
     else:
@@ -1241,10 +1300,10 @@ def ensure_app(headless=True):
     with _ea_lock:
         if _store_app is None and QApplication.instance() is None:
             args = sys.argv[:1]
-            has_headless = isosx or islinux or isbsd
+            has_headless = ismacos or islinux or isbsd
             if headless and has_headless:
                 args += ['-platformpluginpath', plugins_loc, '-platform', 'headless']
-                if isosx:
+                if ismacos:
                     os.environ['QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM'] = '1'
             if headless and iswindows:
                 QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
@@ -1415,12 +1474,13 @@ empty_index = empty_model.index(0)
 def set_app_uid(val):
     import ctypes
     from ctypes import wintypes
+    from ctypes import HRESULT
     try:
         AppUserModelID = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
     except Exception:  # Vista has no app uids
         return False
     AppUserModelID.argtypes = [wintypes.LPCWSTR]
-    AppUserModelID.restype = wintypes.HRESULT
+    AppUserModelID.restype = HRESULT
     try:
         AppUserModelID(unicode_type(val))
     except Exception as err:
@@ -1432,3 +1492,18 @@ def set_app_uid(val):
 def add_to_recent_docs(path):
     app = QApplication.instance()
     plugins['winutil'][0].add_to_recent_docs(unicode_type(path), app.windows_app_uid)
+
+
+def windows_is_system_dark_mode_enabled():
+    s = QSettings(r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", QSettings.NativeFormat)
+    if s.status() == QSettings.NoError:
+        return s.value("AppsUseLightTheme") == 0
+    return False
+
+
+def make_view_use_window_background(view):
+    p = view.palette()
+    p.setColor(p.Base, p.color(p.Window))
+    p.setColor(p.AlternateBase, p.color(p.Window))
+    view.setPalette(p)
+    return view

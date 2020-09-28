@@ -18,7 +18,7 @@ add_extra_css(def():
     sel = '.' + CLASS_NAME
     style = build_rule(sel, text_align='right', user_select='none')
     sel += ' > div '
-    style += build_rule(sel, display='inline-flex', pointer_events='auto', background_color=get_color('window-background'), padding='1ex')
+    style += build_rule(sel, display='inline-flex', align_items='center', pointer_events='auto', background_color=get_color('window-background'), padding='1ex')
     return style
 )
 
@@ -89,10 +89,16 @@ class SearchOverlay:
         self.view.find(text, backwards)
 
     def find_next(self):
-        self.find(self.search_text, False)
+        if ui_operations.find_next:
+            ui_operations.find_next(False)
+        else:
+            self.find(self.search_text, False)
 
     def find_previous(self):
-        self.find(self.search_text, True)
+        if ui_operations.find_next:
+            ui_operations.find_next(True)
+        else:
+            self.find(self.search_text, True)
 
 
 def find_in_serialized_html(data, text):

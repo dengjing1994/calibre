@@ -1,8 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import re
 from functools import partial
@@ -50,6 +49,14 @@ class TOCView(QTreeView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.context_menu)
         QApplication.instance().palette_changed.connect(self.set_style_sheet, type=Qt.QueuedConnection)
+
+    def setModel(self, model):
+        QTreeView.setModel(self, model)
+        model.auto_expand_nodes.connect(self.auto_expand_indices, type=Qt.QueuedConnection)
+
+    def auto_expand_indices(self, indices):
+        for idx in indices:
+            self.setExpanded(idx, True)
 
     def set_style_sheet(self):
         self.setStyleSheet('''
@@ -144,6 +151,9 @@ class TOCItem(QStandardItem):
 
     def __init__(self, toc, depth, all_items, normal_font, emphasis_font, parent=None):
         text = toc.get('title') or ''
+        self.href = (toc.get('dest') or '')
+        if toc.get('frag'):
+            self.href += '#' + toc['frag']
         if text:
             text = re.sub(r'\s', ' ', text)
         self.title = text
@@ -157,7 +167,7 @@ class TOCItem(QStandardItem):
         self.setFlags(Qt.ItemIsEnabled)
         self.is_current_search_result = False
         self.depth = depth
-        self.is_being_viewed = False
+        self.set_being_viewed(False)
 
     def set_being_viewed(self, is_being_viewed):
         self.is_being_viewed = is_being_viewed
@@ -192,6 +202,8 @@ class TOCItem(QStandardItem):
 
 class TOC(QStandardItemModel):
 
+    auto_expand_nodes = pyqtSignal(object)
+
     def __init__(self, toc=None):
         QStandardItemModel.__init__(self)
         self.current_query = {'text':'', 'index':-1, 'items':()}
@@ -214,6 +226,12 @@ class TOC(QStandardItemModel):
         for item in self.find_items(query):
             return item.node_id
 
+    def node_id_for_href(self, query, exact=False):
+        for item in self.all_items:
+            href = item.href
+            if (exact and query == href) or (not exact and query in href):
+                return item.node_id
+
     def search(self, query):
         cq = self.current_query
         if cq['items'] and -1 < cq['index'] < len(cq['items']):
@@ -235,6 +253,7 @@ class TOC(QStandardItemModel):
         if node is not None:
             viewed_nodes |= {x.node_id for x in node.ancestors}
             viewed_nodes.add(node.node_id)
+            self.auto_expand_nodes.emit([n.index() for n in node.ancestors])
         for node in self.all_items:
             is_being_viewed = node.node_id in viewed_nodes
             if is_being_viewed != node.is_being_viewed:

@@ -1,22 +1,20 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import re
 from polyglot.builtins import codepoint_to_chr, map, range, filter
 from polyglot.html_entities import name2codepoint
 from calibre.constants import plugins, preferred_encoding
 
-try:
-    _ncxc = plugins['speedup'][0].clean_xml_chars
-except AttributeError:
-    native_clean_xml_chars = None
-else:
-    def native_clean_xml_chars(x):
-        if isinstance(x, bytes):
-            x = x.decode(preferred_encoding)
-        return _ncxc(x)
+_ncxc = plugins['speedup'][0].clean_xml_chars
+
+
+def native_clean_xml_chars(x):
+    if isinstance(x, bytes):
+        x = x.decode(preferred_encoding)
+    return _ncxc(x)
 
 
 def ascii_pat(for_binary=False):

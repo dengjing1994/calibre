@@ -1,4 +1,4 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -10,10 +10,11 @@ import re, os
 from PyQt5.Qt import (QIcon, QFont, QLabel, QListWidget, QAction,
         QListWidgetItem, QTextCharFormat, QApplication, QSyntaxHighlighter,
         QCursor, QColor, QWidget, QPixmap, QSplitterHandle, QToolButton,
-        Qt, pyqtSignal, QRegExp, QSize, QSplitter, QPainter,
+        Qt, pyqtSignal, QRegExp, QSize, QSplitter, QPainter, QPageSize, QPrinter,
         QLineEdit, QComboBox, QPen, QGraphicsScene, QMenu, QStringListModel,
-        QCompleter, QTimer, QRect, QGraphicsView)
+        QCompleter, QTimer, QRect, QGraphicsView, QPagedPaintDevice)
 
+from calibre.constants import iswindows, ismacos
 from calibre.gui2 import (error_dialog, pixmap_to_data, gprefs,
         warning_dialog)
 from calibre.gui2.filename_pattern_ui import Ui_Form
@@ -22,7 +23,7 @@ from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.utils.config import prefs, XMLConfig
 from calibre.gui2.progress_indicator import ProgressIndicator as _ProgressIndicator
 from calibre.gui2.dnd import (dnd_has_image, dnd_get_image, dnd_get_files,
-    image_extensions, dnd_has_extension, DownloadDialog)
+    image_extensions, dnd_has_extension, dnd_get_local_image_and_pixmap, DownloadDialog)
 from calibre.utils.localization import localize_user_manual_link
 from polyglot.builtins import native_string_type, unicode_type, range
 
@@ -237,6 +238,10 @@ class ImageDropMixin(object):  # {{{
     def dropEvent(self, event):
         event.setDropAction(Qt.CopyAction)
         md = event.mimeData()
+        pmap, data = dnd_get_local_image_and_pixmap(md)
+        if pmap is not None:
+            self.handle_image_drop(pmap, data)
+            return
 
         x, y = dnd_get_image(md)
         if x is not None:
@@ -519,7 +524,7 @@ class EnLineEdit(LineEditECM, QLineEdit):  # {{{
     def event(self, ev):
         # See https://bugreports.qt.io/browse/QTBUG-46911
         if ev.type() == ev.ShortcutOverride and (
-                ev.key() in (Qt.Key_Left, Qt.Key_Right) and (ev.modifiers() & ~Qt.KeypadModifier) == Qt.ControlModifier):
+                hasattr(ev, 'key') and ev.key() in (Qt.Key_Left, Qt.Key_Right) and (ev.modifiers() & ~Qt.KeypadModifier) == Qt.ControlModifier):
             ev.accept()
         return QLineEdit.event(self, ev)
 
@@ -669,6 +674,7 @@ class HistoryLineEdit(QComboBox):  # {{{
         self.setInsertPolicy(self.NoInsert)
         self.setMaxCount(10)
         self.setClearButtonEnabled = self.lineEdit().setClearButtonEnabled
+        self.textChanged = self.editTextChanged
 
     def setPlaceholderText(self, txt):
         return self.lineEdit().setPlaceholderText(txt)
@@ -856,16 +862,14 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
 
     @classmethod
     def initializeFormats(cls):
-        if cls.Formats:
-            return
         baseFormat = QTextCharFormat()
         baseFormat.setFontFamily('monospace')
-        baseFormat.setFontPointSize(11)
+        p = QApplication.instance().palette()
         for name, color, bold, italic in (
-                ("normal", "#000000", False, False),
-                ("keyword", "#000080", True, False),
-                ("builtin", "#0000A0", False, False),
-                ("constant", "#0000C0", False, False),
+                ("normal", None, False, False),
+                ("keyword", p.color(p.Link).name(), True, False),
+                ("builtin", p.color(p.Link).name(), False, False),
+                ("constant", p.color(p.Link).name(), False, False),
                 ("decorator", "#0000E0", False, False),
                 ("comment", "#007F00", False, True),
                 ("string", "#808000", False, False),
@@ -873,12 +877,14 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
                 ("error", "#FF0000", False, False),
                 ("pyqt", "#50621A", False, False)):
 
-            format = QTextCharFormat(baseFormat)
-            format.setForeground(QColor(color))
+            fmt = QTextCharFormat(baseFormat)
+            if color is not None:
+                fmt.setForeground(QColor(color))
             if bold:
-                format.setFontWeight(QFont.Bold)
-            format.setFontItalic(italic)
-            cls.Formats[name] = format
+                fmt.setFontWeight(QFont.Bold)
+            if italic:
+                fmt.setFontItalic(italic)
+            cls.Formats[name] = fmt
 
     def highlightBlock(self, text):
         NORMAL, TRIPLESINGLE, TRIPLEDOUBLE, ERROR = range(4)
@@ -956,6 +962,7 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
         QApplication.restoreOverrideCursor()
 
 # }}}
+
 
 # Splitter {{{
 
@@ -1231,6 +1238,41 @@ class Splitter(QSplitter):
 
     # }}}
 
+# }}}
+
+
+class PaperSizes(QComboBox):  # {{{
+
+    system_default_paper_size = None
+
+    def initialize(self, choices=None):
+        from calibre.utils.icu import numeric_sort_key
+        if self.system_default_paper_size is None:
+            PaperSizes.system_default_paper_size = 'a4'
+            if iswindows or ismacos:
+                # On Linux, this can cause Qt to load the system cups plugin
+                # which can crash: https://bugs.launchpad.net/calibre/+bug/1861741
+                PaperSizes.system_default_paper_size = 'letter' if QPrinter().pageSize() == QPagedPaintDevice.Letter else 'a4'
+        if not choices:
+            from calibre.ebooks.conversion.plugins.pdf_output import PAPER_SIZES
+            choices = PAPER_SIZES
+        for a in sorted(choices, key=numeric_sort_key):
+            s = getattr(QPageSize, a.capitalize())
+            sz = QPageSize.definitionSize(s)
+            unit = {QPageSize.Millimeter: 'mm', QPageSize.Inch: 'inch'}[QPageSize.definitionUnits(s)]
+            name = '{} ({:g} x {:g} {})'.format(QPageSize.name(s), sz.width(), sz.height(), unit)
+            self.addItem(name, a)
+
+    @property
+    def get_value_for_config(self):
+        return self.currentData()
+
+    @get_value_for_config.setter
+    def set_value_for_config(self, val):
+        idx = self.findData(val or PaperSizes.system_default_paper_size)
+        if idx == -1:
+            idx = self.findData('a4')
+        self.setCurrentIndex(idx)
 # }}}
 
 

@@ -1,5 +1,5 @@
-#!/usr/bin/env python2
-from __future__ import absolute_import, division, print_function, unicode_literals
+#!/usr/bin/env python
+
 
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -44,7 +44,7 @@ class TemplateHighlighter(QSyntaxHighlighter):
     Formats = {}
     BN_FACTOR = 1000
 
-    KEYWORDS = ["program"]
+    KEYWORDS = ["program", 'if', 'then', 'else', 'fi']
 
     def __init__(self, parent=None):
         super(TemplateHighlighter, self).__init__(parent)
@@ -82,15 +82,16 @@ class TemplateHighlighter(QSyntaxHighlighter):
     def initializeFormats(self):
         Config = self.Config
         Config["fontfamily"] = "monospace"
+        pal = QApplication.instance().palette()
         for name, color, bold, italic in (
-                ("normal", "#000000", False, False),
-                ("keyword", "#000080", True, False),
-                ("builtin", "#0000A0", False, False),
+                ("normal", None, False, False),
+                ("keyword", pal.color(pal.Link).name(), True, False),
+                ("builtin", pal.color(pal.Link).name(), False, False),
                 ("comment", "#007F00", False, True),
                 ("string", "#808000", False, False),
                 ("number", "#924900", False, False),
-                ("lparen", "#000000", True, True),
-                ("rparen", "#000000", True, True)):
+                ("lparen", None, True, True),
+                ("rparen", None, True, True)):
             Config["%sfontcolor" % name] = color
             Config["%sfontbold" % name] = bold
             Config["%sfontitalic" % name] = italic
@@ -102,7 +103,9 @@ class TemplateHighlighter(QSyntaxHighlighter):
         for name in ("normal", "keyword", "builtin", "comment",
                      "string", "number", "lparen", "rparen"):
             format = QTextCharFormat(baseFormat)
-            format.setForeground(QColor(Config["%sfontcolor" % name]))
+            col = Config["%sfontcolor" % name]
+            if col:
+                format.setForeground(QColor(col))
             if Config["%sfontbold" % name]:
                 format.setFontWeight(QFont.Bold)
             format.setFontItalic(Config["%sfontitalic" % name])
@@ -356,7 +359,7 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
     def filename_button_clicked(self):
         try:
             path = choose_files(self, 'choose_category_icon',
-                        _('Select Icon'), filters=[
+                        _('Select icon'), filters=[
                         ('Images', ['png', 'gif', 'jpg', 'jpeg'])],
                     all_files=False, select_only_single_file=True)
             if path:

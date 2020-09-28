@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2015-2019, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -187,7 +187,7 @@ class BookUploadsGroupBox(DeviceOptionsGroupBox):
 
     def __init__(self, parent, device):
         super(BookUploadsGroupBox, self).__init__(parent, device)
-        self.setTitle(_("Book uploading"))
+        self.setTitle(_("Uploading of books"))
 
         self.options_layout = QGridLayout()
         self.options_layout.setObjectName("options_layout")

@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 # License: GPLv3 Copyright: 2010, Kovid Goyal <kovid at kovidgoyal.net>
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 import os
 import re
@@ -22,9 +22,10 @@ from PyQt5.Qt import (
 
 from calibre import xml_replace_entities
 from calibre.ebooks.chardet import xml_to_unicode
-from calibre.gui2 import NO_URL_FORMATTING, choose_files, error_dialog, gprefs
+from calibre.gui2 import NO_URL_FORMATTING, choose_files, error_dialog, gprefs, is_dark_theme
 from calibre.gui2.book_details import css
 from calibre.gui2.widgets import LineEditECM
+from calibre.gui2.widgets2 import to_plain_text
 from calibre.utils.config import tweaks
 from calibre.utils.imghdr import what
 from polyglot.builtins import filter, iteritems, itervalues, unicode_type
@@ -77,13 +78,14 @@ def lift_styles(tag, style_map):
 
 def filter_qt_styles(style):
     for k in tuple(style):
+        # -qt-paragraph-type is a hack used by Qt for empty paragraphs
         if k.startswith('-qt-'):
             del style[k]
 
 
 def remove_margins(tag, style):
     ml, mr, mt, mb = (style.pop('margin-' + k, None) for k in 'left right top bottom'.split())
-    is_blockquote = ml == mr and ml and ml != '0px'
+    is_blockquote = ml == mr and ml and ml != '0px' and (ml != mt or ml != mb)
     if is_blockquote:
         tag.tag = 'blockquote'
 
@@ -191,6 +193,15 @@ def cleanup_qt_markup(root):
             use_implicit_styling_for_a(child, style_map)
         for child in tag.iterdescendants('span'):
             use_implicit_styling_for_span(child, style_map[child])
+        if tag.tag == 'p' and style_map[tag].get('-qt-paragraph-type') == 'empty':
+            del tag[:]
+            tag.text = '\xa0'
+        if tag.tag in ('ol', 'ul'):
+            for li in tag.iterdescendants('li'):
+                ts = style_map.get(li)
+                if ts:
+                    remove_margins(li, ts)
+                    remove_zero_indents(ts)
     for style in itervalues(style_map):
         filter_qt_styles(style)
     for tag, style in iteritems(style_map):
@@ -231,7 +242,7 @@ class EditorWidget(QTextEdit, LineEditECM):  # {{{
     def __init__(self, parent=None):
         QTextEdit.__init__(self, parent)
         self.setTabChangesFocus(True)
-        self.document().setDefaultStyleSheet(css())
+        self.document().setDefaultStyleSheet(css() + '\n\nli { margin-top: 0.5ex; margin-bottom: 0.5ex; }')
         font = self.font()
         f = QFontInfo(font)
         delta = tweaks['change_book_details_font_size_by'] + 1
@@ -753,7 +764,13 @@ class EditorWidget(QTextEdit, LineEditECM):  # {{{
                     with lopen(path, 'rb') as f:
                         data = f.read()
                 except EnvironmentError:
-                    pass
+                    if path.rpartition('.')[-1].lower() in {'jpg', 'jpeg', 'gif', 'png', 'bmp', 'webp'}:
+                        return QByteArray(bytearray.fromhex(
+                                    '89504e470d0a1a0a0000000d49484452'
+                                    '000000010000000108060000001f15c4'
+                                    '890000000a49444154789c6300010000'
+                                    '0500010d0a2db40000000049454e44ae'
+                                    '426082'))
                 else:
                     return QByteArray(data)
 
@@ -794,6 +811,8 @@ class EditorWidget(QTextEdit, LineEditECM):  # {{{
         if hasattr(parent, 'toolbars_visible'):
             vis = parent.toolbars_visible
             menu.addAction(_('%s toolbars') % (_('Hide') if vis else _('Show')), parent.toggle_toolbars)
+        menu.addSeparator()
+        menu.addAction(_('Smarten punctuation'), parent.smarten_punctuation)
         menu.exec_(ev.globalPos())
 
 # }}}
@@ -821,10 +840,16 @@ class Highlighter(QSyntaxHighlighter):
         self.colors = {}
         self.colors['doctype']        = QColor(192, 192, 192)
         self.colors['entity']         = QColor(128, 128, 128)
-        self.colors['tag']            = QColor(136,  18, 128)
         self.colors['comment']        = QColor(35, 110,  37)
-        self.colors['attrname']       = QColor(153,  69,   0)
-        self.colors['attrval']        = QColor(36,  36, 170)
+        if is_dark_theme():
+            from calibre.gui2.palette import dark_link_color
+            self.colors['tag']            = QColor(186,  78, 188)
+            self.colors['attrname']       = QColor(193,  119, 60)
+            self.colors['attrval']        = dark_link_color
+        else:
+            self.colors['tag']            = QColor(136,  18, 128)
+            self.colors['attrname']       = QColor(153,  69,   0)
+            self.colors['attrval']        = QColor(36,  36, 170)
 
     def highlightBlock(self, text):
         state = self.previousBlockState()
@@ -897,6 +922,7 @@ class Highlighter(QSyntaxHighlighter):
 
                     if ch == '>':
                         state = State_Text
+                        self.setFormat(pos-1, 1, self.colors['tag'])
                         break
 
                     if not ch.isspace():
@@ -934,11 +960,13 @@ class Highlighter(QSyntaxHighlighter):
                     # handle opening single quote
                     if ch == "'":
                         state = State_SingleQuote
+                        self.setFormat(pos - 1, 1, self.colors['attrval'])
                         break
 
                     # handle opening double quote
                     if ch == '"':
                         state = State_DoubleQuote
+                        self.setFormat(pos - 1, 1, self.colors['attrval'])
                         break
 
                     if not ch.isspace():
@@ -1053,7 +1081,7 @@ class Editor(QWidget):  # {{{
         tb.addWidget(self.toolbar3)
         l.addWidget(self.editor)
         self._layout.addWidget(self.tabs)
-        self.tabs.addTab(self.wyswyg, _('N&ormal view'))
+        self.tabs.addTab(self.wyswyg, _('&Normal view'))
         self.tabs.addTab(self.code_edit, _('&HTML source'))
         self.tabs.currentChanged[int].connect(self.change_tab)
         self.highlighter = Highlighter(self.code_edit.document())
@@ -1101,6 +1129,7 @@ class Editor(QWidget):  # {{{
         for x in ('bold', 'italic', 'underline', 'strikethrough'):
             ac = getattr(self.editor, 'action_'+x)
             self.toolbar3.addAction(ac)
+            self.addAction(ac)
         self.toolbar3.addSeparator()
 
         for x in ('left', 'center', 'right', 'justified'):
@@ -1134,7 +1163,7 @@ class Editor(QWidget):  # {{{
                 self.wyswyg_dirty = False
         elif index == 0:  # changing to wyswyg
             if self.source_dirty:
-                self.editor.html = unicode_type(self.code_edit.toPlainText())
+                self.editor.html = to_plain_text(self.code_edit)
                 self.source_dirty = False
 
     @property
@@ -1181,17 +1210,25 @@ class Editor(QWidget):  # {{{
     def hide_tabs(self):
         self.tabs.tabBar().setVisible(False)
 
+    def smarten_punctuation(self):
+        from calibre.ebooks.conversion.preprocess import smarten_punctuation
+        html = self.html
+        newhtml = smarten_punctuation(html)
+        if html != newhtml:
+            self.html = newhtml
+
 # }}}
 
 
 if __name__ == '__main__':
-    app = QApplication([])
+    from calibre.gui2 import Application
+    app = Application([])
     w = Editor()
     w.resize(800, 600)
     w.show()
     w.html = '''<h1>Test Heading</h1><blockquote>Test blockquote</blockquote><p><span style="background-color: rgb(0, 255, 255); ">He hadn't
     set <u>out</u> to have an <em>affair</em>, <span style="font-style:italic; background-color:red">
     much</span> less a <s>long-term</s>, <b>devoted</b> one.</span><p>hello'''
-    w.html = '<div><p id="moo">Testing <em>a</em> link.</p></div>'
+    w.html = '<div><p id="moo">Testing <em>a</em> link.</p><p>\xa0</p><p>ss</p></div>'
     app.exec_()
     # print w.html

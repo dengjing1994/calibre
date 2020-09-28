@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -99,7 +99,7 @@ class HorizontalHeader(UnknownTable):
         self.left_side_bearings = a[1::2]
 
 
-class VericalHeader(UnknownTable):
+class VerticalHeader(UnknownTable):
 
     version_number = FixedProperty('_version_number')
 
@@ -133,7 +133,7 @@ class VericalHeader(UnknownTable):
             setattr(self, f, val)
 
         raw = vmtx.raw
-        num = self.number_of_h_metrics
+        num = self.number_of_v_metrics
         if len(raw) < 4*num:
             raise UnsupportedFont('The vmtx table has insufficient data')
         long_hor_metric = raw[:4*num]

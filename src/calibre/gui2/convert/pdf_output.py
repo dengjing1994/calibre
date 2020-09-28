@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
@@ -33,8 +33,7 @@ class PluginWidget(Widget, Ui_Form):
         except TypeError:
             pass  # link already localized
 
-        for x in get_option('paper_size').option.choices:
-            self.opt_paper_size.addItem(x)
+        self.opt_paper_size.initialize(get_option('paper_size').option.choices)
         for x in get_option('unit').option.choices:
             self.opt_unit.addItem(x)
         for x in get_option('pdf_standard_font').option.choices:

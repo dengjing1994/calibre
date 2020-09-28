@@ -7,9 +7,8 @@
 
 %ModuleHeaderCode
 #include <QPainter>
-int load_style(QHash<int,QString> icon_map);
+int load_style(QHash<int,QString> icon_map, int transient_scroller);
 void set_no_activate_on_click(QWidget *widget);
-void set_touch_menu_style(QWidget *widget, int margin);
 void draw_snake_spinner(QPainter &painter, QRect rect, int angle, const QColor & light, const QColor & dark);
 %End
 
@@ -45,6 +44,7 @@ public slots:
     void set_colors(const QColor & dark, const QColor & light);
 
     void setDisplaySize(QSize size);
+    void setDisplaySize(int size);
     void setSizeHint(int size);
     void setSizeHint(QSize size);
 
@@ -56,7 +56,6 @@ protected:
 
 };
 
-int load_style(QHash<int,QString> icon_map);
+int load_style(QHash<int,QString> icon_map, int transient_scroller);
 void set_no_activate_on_click(QWidget *widget);
-void set_touch_menu_style(QWidget *widget, int margin=20);
-void draw_snake_spinner(QPainter &painter, QRect rect, int angle, const QColor & light, const QColor & dark);
+void draw_snake_spinner(QPainter &painter, QRect rect, int angle, const QColor & light, const QColor & dark) /ReleaseGIL/;

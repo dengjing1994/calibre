@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -68,11 +68,12 @@ class ShareConnMenu(QMenu):  # {{{
             from calibre.srv.opts import server_config
             opts = server_config()
             listen_on = verify_ipV4_address(opts.listen_on) or get_external_ip()
+            protocol = 'HTTPS' if opts.ssl_certfile and opts.ssl_keyfile else 'HTTP'
             try:
-                ip_text = _(' [%(ip)s, port %(port)d]')%dict(
-                    ip=listen_on, port=opts.port)
+                ip_text = ' ' + _('[{ip}, port {port}, {protocol}]').format(
+                        ip=listen_on, port=opts.port, protocol=protocol)
             except Exception:
-                ip_text = ' [%s]'%listen_on
+                ip_text = ' [{} {}]'.format(listen_on, protocol)
             self.ip_text = ip_text
             self.server_state_changed_signal.emit(running, ip_text)
             text = _('Stop Content server') + ip_text

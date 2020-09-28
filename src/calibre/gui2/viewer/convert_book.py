@@ -1,21 +1,21 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2018, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import errno
 import json
 import os
-import shutil
 import tempfile
 import time
 from hashlib import sha1
+from itertools import count
 
 from calibre import walk
 from calibre.constants import cache_dir, iswindows
 from calibre.ptempfile import TemporaryFile
 from calibre.srv.render_book import RENDER_VERSION
+from calibre.utils.filenames import rmtree
 from calibre.utils.ipc.simple_worker import start_pipe_worker
 from calibre.utils.lock import ExclusiveFile
 from calibre.utils.serialize import msgpack_dumps
@@ -24,6 +24,7 @@ from polyglot.builtins import as_bytes, as_unicode, iteritems
 
 DAY = 24 * 3600
 VIEWER_VERSION = 1
+td_counter = count()
 
 
 def book_cache_dir():
@@ -55,7 +56,10 @@ def robust_rmtree(x):
     retries = 2 if iswindows else 1  # retry on windows to get around the idiotic mandatory file locking
     for i in range(retries):
         try:
-            shutil.rmtree(x)
+            try:
+                rmtree(x)
+            except UnicodeDecodeError:
+                rmtree(as_bytes(x))
             return True
         except EnvironmentError:
             time.sleep(0.1)
@@ -90,22 +94,52 @@ def expire_cache(path, instances, max_age):
             instances.remove(instance)
 
 
-def expire_cache_and_temp(temp_path, finished_path, metadata, max_age):
+def expire_old_versions(path, instances):
+    instances = filter(lambda x: x['status'] == 'finished', instances)
+    remove = sorted(instances, key=lambda x: x['atime'], reverse=True)[1:]
+    for instance in remove:
+        if robust_rmtree(os.path.join(path, instance['path'])):
+            yield instance
+
+
+def expire_cache_and_temp(temp_path, finished_path, metadata, max_age, force_expire):
     now = time.time()
-    if now - metadata['last_clear_at'] < DAY and max_age >= 0:
+    if now - metadata['last_clear_at'] < DAY and max_age >= 0 and not force_expire:
         return
     clear_temp(temp_path)
     entries = metadata['entries']
+    path_key_map = {}
     for key, instances in tuple(entries.items()):
         if instances:
             expire_cache(finished_path, instances, max_age)
             if not instances:
                 del entries[key]
+            else:
+                for x in instances:
+                    book_path = x.get('book_path')
+                    if book_path:
+                        path_key_map.setdefault(book_path, []).append(key)
+    for keys in path_key_map.values():
+        instances = []
+        for key in keys:
+            instances += entries.get(key, [])
+        if len(instances) > 1:
+            removed = tuple(expire_old_versions(finished_path, instances))
+            if removed:
+                for r in removed:
+                    rkey = r['key']
+                    if rkey in entries:
+                        try:
+                            entries[rkey].remove(r)
+                        except ValueError:
+                            pass
+                        if not entries[rkey]:
+                            del entries[rkey]
     metadata['last_clear_at'] = now
 
 
-def prepare_convert(temp_path, key, st):
-    tdir = tempfile.mkdtemp(dir=temp_path)
+def prepare_convert(temp_path, key, st, book_path):
+    tdir = tempfile.mkdtemp(dir=temp_path, prefix=f'c{next(td_counter)}-')
     now = time.time()
     return {
         'path': os.path.basename(tdir),
@@ -117,6 +151,7 @@ def prepare_convert(temp_path, key, st):
         'file_mtime': st.st_mtime,
         'file_size': st.st_size,
         'cache_size': 0,
+        'book_path': book_path,
     }
 
 
@@ -129,19 +164,37 @@ class ConversionFailure(ValueError):
                 self, 'Failed to convert book: {} with error:\n{}'.format(book_path, worker_output))
 
 
+running_workers = []
+
+
+def clean_running_workers():
+    for p in running_workers:
+        if p.poll() is None:
+            p.kill()
+    del running_workers[:]
+
+
 def do_convert(path, temp_path, key, instance):
     tdir = os.path.join(temp_path, instance['path'])
-    with TemporaryFile('log.txt') as logpath:
-        with open(logpath, 'w+b') as logf:
-            p = start_pipe_worker('from calibre.srv.render_book import viewer_main; viewer_main()', stdout=logf, stderr=logf)
-            p.stdin.write(msgpack_dumps((
-                path, tdir, {'size': instance['file_size'], 'mtime': instance['file_mtime'], 'hash': key},
-                )))
-            p.stdin.close()
-        if p.wait() != 0:
-            with lopen(logpath, 'rb') as logf:
-                worker_output = logf.read().decode('utf-8', 'replace')
-            raise ConversionFailure(path, worker_output)
+    p = None
+    try:
+        with TemporaryFile('log.txt') as logpath:
+            with open(logpath, 'w+b') as logf:
+                p = start_pipe_worker('from calibre.srv.render_book import viewer_main; viewer_main()', stdout=logf, stderr=logf)
+                running_workers.append(p)
+                p.stdin.write(msgpack_dumps((
+                    path, tdir, {'size': instance['file_size'], 'mtime': instance['file_mtime'], 'hash': key},
+                    )))
+                p.stdin.close()
+            if p.wait() != 0:
+                with lopen(logpath, 'rb') as logf:
+                    worker_output = logf.read().decode('utf-8', 'replace')
+                raise ConversionFailure(path, worker_output)
+    finally:
+        try:
+            running_workers.remove(p)
+        except Exception:
+            pass
     size = 0
     for f in walk(tdir):
         size += os.path.getsize(f)
@@ -152,7 +205,7 @@ def save_metadata(metadata, f):
     f.seek(0), f.truncate(), f.write(as_bytes(json.dumps(metadata, indent=2)))
 
 
-def prepare_book(path, convert_func=do_convert, max_age=30 * DAY, force=False, prepare_notify=None):
+def prepare_book(path, convert_func=do_convert, max_age=30 * DAY, force=False, prepare_notify=None, force_expire=False):
     st = os.stat(path)
     key = book_hash(path, st.st_size, st.st_mtime)
     finished_path = safe_makedirs(os.path.join(book_cache_dir(), 'f'))
@@ -176,13 +229,13 @@ def prepare_book(path, convert_func=do_convert, max_age=30 * DAY, force=False, p
                     return os.path.join(finished_path, instance['path'])
         if prepare_notify:
             prepare_notify()
-        instance = prepare_convert(temp_path, key, st)
+        instance = prepare_convert(temp_path, key, st, path)
         instances.append(instance)
         save_metadata(metadata, f)
     convert_func(path, temp_path, key, instance)
     src_path = os.path.join(temp_path, instance['path'])
     with cache_lock() as f:
-        ans = tempfile.mkdtemp(dir=finished_path)
+        ans = tempfile.mkdtemp(dir=finished_path, prefix=f'c{next(td_counter)}-')
         instance['path'] = os.path.basename(ans)
         try:
             metadata = json.loads(f.read())
@@ -202,7 +255,7 @@ def prepare_book(path, convert_func=do_convert, max_age=30 * DAY, force=False, p
             if q['id'] == instance['id']:
                 q.update(instance)
                 break
-        expire_cache_and_temp(temp_path, finished_path, metadata, max_age)
+        expire_cache_and_temp(temp_path, finished_path, metadata, max_age, force_expire)
         save_metadata(metadata, f)
     return ans
 
@@ -251,7 +304,7 @@ def find_tests():
             book_cache_dir.override = os.path.join(self.tdir, 'ev2')
 
         def tearDown(self):
-            shutil.rmtree(self.tdir)
+            rmtree(self.tdir)
             del book_cache_dir.override
 
         def test_viewer_cache(self):
@@ -261,8 +314,14 @@ def find_tests():
                 self.ae(instance['key'], key)
                 open(os.path.join(temp_path, instance['path'], 'sentinel'), 'wb').write(b'test')
 
+            def set_data(x):
+                if not isinstance(x, bytes):
+                    x = x.encode('utf-8')
+                with open(book_src, 'wb') as f:
+                    f.write(x)
+
             book_src = os.path.join(self.tdir, 'book.epub')
-            open(book_src, 'wb').write(b'a')
+            set_data('a')
             path = prepare_book(book_src, convert_func=convert_mock)
             self.ae(open(os.path.join(path, 'sentinel'), 'rb').read(), b'test')
 
@@ -271,7 +330,7 @@ def find_tests():
             self.ae(path, second_path)
 
             # Test that changing the book updates the cache
-            open(book_src, 'wb').write(b'bc')
+            set_data('bc')
             third_path = prepare_book(book_src, convert_func=convert_mock)
             self.assertNotEqual(path, third_path)
 
@@ -282,17 +341,34 @@ def find_tests():
             self.assertNotEqual(third_path, fourth_path)
 
             # Test cache expiry
-            open(book_src, 'wb').write(b'bcd')
+            set_data('bcd')
             prepare_book(book_src, convert_func=convert_mock, max_age=-1000)
             self.ae([], os.listdir(os.path.join(book_cache_dir(), 'f')))
 
+            # Test modifying a book and opening it repeatedly leaves only
+            # a single entry for it in the cache
+            opath = prepare_book(book_src, convert_func=convert_mock, force_expire=True)
+            finished_entries = os.listdir(os.path.join(book_cache_dir(), 'f'))
+            self.ae(len(finished_entries), 1)
+            set_data('bcde' * 4096)
+            npath = prepare_book(book_src, convert_func=convert_mock, force_expire=True)
+            new_finished_entries = os.listdir(os.path.join(book_cache_dir(), 'f'))
+            self.ae(len(new_finished_entries), 1)
+            self.assertNotEqual(opath, npath)
+            set_data('bcdef')
+            prepare_book(book_src, convert_func=convert_mock, max_age=-1000, force_expire=True)
+            self.ae([], os.listdir(os.path.join(book_cache_dir(), 'f')))
+            with cache_lock() as f:
+                metadata = json.loads(f.read())
+                self.assertEqual(metadata['entries'], {})
+
             # Test updating cached book
             book_src = os.path.join(self.tdir, 'book2.epub')
-            open(book_src, 'wb').write(b'bb')
+            set_data('bb')
             path = prepare_book(book_src, convert_func=convert_mock)
             self.ae(open(os.path.join(path, 'sentinel'), 'rb').read(), b'test')
             bs = os.stat(book_src)
-            open(book_src, 'wb').write(b'cde')
+            set_data('cde')
             update_book(book_src, bs, name_data_map={'sentinel': b'updated'})
             self.ae(open(os.path.join(path, 'sentinel'), 'rb').read(), b'updated')
             self.ae(1, len(os.listdir(os.path.join(book_cache_dir(), 'f'))))

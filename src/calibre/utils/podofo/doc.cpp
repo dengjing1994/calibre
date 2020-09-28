@@ -33,18 +33,12 @@ PDFDoc_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 }
 // }}}
 
-#if PY_MAJOR_VERSION >= 3
-    #define BYTES_FMT "y#"
-#else
-    #define BYTES_FMT "s#"
-#endif
-
 // Loading/Opening of PDF files {{{
 static PyObject *
 PDFDoc_load(PDFDoc *self, PyObject *args) {
     char *buffer; Py_ssize_t size;
 
-    if (!PyArg_ParseTuple(args, BYTES_FMT, &buffer, &size)) return NULL;
+    if (!PyArg_ParseTuple(args, "y#", &buffer, &size)) return NULL;
 
 	try {
 #if PODOFO_VERSION <= 0x000905
@@ -206,6 +200,66 @@ PDFDoc_delete_pages(PDFDoc *self, PyObject *args) {
     Py_RETURN_NONE;
 } // }}}
 
+// get_page_box() {{{
+static PyObject *
+PDFDoc_get_page_box(PDFDoc *self, PyObject *args) {
+    int pagenum = 0;
+	const char *which;
+    if (PyArg_ParseTuple(args, "si", &which, &pagenum)) {
+        try {
+			PdfPagesTree* tree = self->doc->GetPagesTree();
+			PdfPage* page = tree->GetPage(pagenum - 1);
+			if (!page) { PyErr_Format(PyExc_ValueError, "page number %d not found in PDF file", pagenum); return NULL; }
+			PdfRect rect;
+			if (strcmp(which, "MediaBox") == 0) {
+				rect = page->GetMediaBox();
+			} else if (strcmp(which, "CropBox") == 0) {
+				rect = page->GetCropBox();
+			} else if (strcmp(which, "TrimBox") == 0) {
+				rect = page->GetTrimBox();
+			} else if (strcmp(which, "BleedBox") == 0) {
+				rect = page->GetBleedBox();
+			} else if (strcmp(which, "ArtBox") == 0) {
+				rect = page->GetArtBox();
+			} else {
+				PyErr_Format(PyExc_KeyError, "%s is not a known box", which);
+				return NULL;
+			}
+			return Py_BuildValue("dddd", rect.GetLeft(), rect.GetBottom(), rect.GetWidth(), rect.GetHeight());
+        } catch(const PdfError & err) {
+            podofo_set_exception(err);
+            return NULL;
+        }
+    } else return NULL;
+
+    Py_RETURN_NONE;
+} // }}}
+
+// set_page_box() {{{
+static PyObject *
+PDFDoc_set_page_box(PDFDoc *self, PyObject *args) {
+    int pagenum = 0;
+	double left, bottom, width, height;
+	const char *which;
+    if (PyArg_ParseTuple(args, "sidddd", &which, &pagenum, &left, &bottom, &width, &height)) {
+        try {
+			PdfPagesTree* tree = self->doc->GetPagesTree();
+			PdfPage* page = tree->GetPage(pagenum - 1);
+			if (!page) { PyErr_Format(PyExc_ValueError, "page number %d not found in PDF file", pagenum); return NULL; }
+			PdfRect rect(left, bottom, width, height);
+			PdfObject box;
+			rect.ToVariant(box);
+			page->GetObject()->GetDictionary().AddKey(PdfName(which), box);
+			Py_RETURN_NONE;
+        } catch(const PdfError & err) {
+            podofo_set_exception(err);
+            return NULL;
+        }
+    } else return NULL;
+
+    Py_RETURN_NONE;
+} // }}}
+
 // copy_page() {{{
 static PyObject *
 PDFDoc_copy_page(PDFDoc *self, PyObject *args) {
@@ -300,7 +354,7 @@ PDFDoc_get_xmp_metadata(PDFDoc *self, PyObject *args) {
             if ((str = metadata->GetStream()) != NULL) {
                 str->GetFilteredCopy(&buf, &len);
                 if (buf != NULL) {
-                    ans = Py_BuildValue(BYTES_FMT, buf, len);
+                    ans = Py_BuildValue("y#", buf, len);
                     free(buf); buf = NULL;
                     if (ans == NULL) goto error;
                 }
@@ -328,7 +382,7 @@ PDFDoc_set_xmp_metadata(PDFDoc *self, PyObject *args) {
     TVecFilters compressed(1);
     compressed[0] = ePdfFilter_FlateDecode;
 
-    if (!PyArg_ParseTuple(args, BYTES_FMT, &raw, &len)) return NULL;
+    if (!PyArg_ParseTuple(args, "y#", &raw, &len)) return NULL;
     try {
         if ((metadata = self->doc->GetMetadata()) != NULL) {
             if ((str = metadata->GetStream()) == NULL) { PyErr_NoMemory(); goto error; }
@@ -490,11 +544,7 @@ PDFDoc_alter_links(PDFDoc *self, PyObject *args) {
 static PyObject *
 PDFDoc_pages_getter(PDFDoc *self, void *closure) {
     int pages = self->doc->GetPageCount();
-#if PY_MAJOR_VERSION >= 3
     PyObject *ans = PyLong_FromLong(static_cast<long>(pages));
-#else
-    PyObject *ans = PyInt_FromLong(static_cast<long>(pages));
-#endif
     if (ans != NULL) Py_INCREF(ans);
     return ans;
 }
@@ -736,6 +786,12 @@ static PyMethodDef PDFDoc_methods[] = {
     },
     {"delete_pages", (PyCFunction)PDFDoc_delete_pages, METH_VARARGS,
      "delete_page(page_num, count=1) -> Delete the specified pages from the pdf."
+    },
+    {"get_page_box", (PyCFunction)PDFDoc_get_page_box, METH_VARARGS,
+     "get_page_box(which, page_num) -> Get the specified box for the specified page as (left, bottom, width, height) in pts"
+    },
+    {"set_page_box", (PyCFunction)PDFDoc_set_page_box, METH_VARARGS,
+     "set_page_box(which, page_num, left, bottom, width, height) -> Set the specified box (in pts) for the specified page."
     },
     {"copy_page", (PyCFunction)PDFDoc_copy_page, METH_VARARGS,
      "copy_page(from, to) -> Copy the specified page."

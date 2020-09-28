@@ -8,7 +8,7 @@ from gettext import gettext as _
 from book_list.item_list import build_list, create_item
 from dom import ensure_id, set_css
 from modals import error_dialog
-from read_book.globals import current_book, ui_operations
+from read_book.globals import current_book, runtime, ui_operations
 from read_book.prefs.head_foot import format_pos
 from read_book.toc import get_border_nodes, get_toc_maps
 from widgets import create_button
@@ -33,6 +33,10 @@ def create_goto_list(onclick, current_position_data):
     items.push(create_item(_('Metadata'), subtitle=_('Details about this book'), action=onclick.bind(None, def(view):
         view.overlay.show_metadata()
     )))
+    if not runtime.is_standalone_viewer:
+        items.push(create_item(_('Book page in library'), subtitle=_('The page for this book in the calibre library'), action=onclick.bind(None, def(view):
+            view.open_book_page()
+        )))
     items.push(create_item(_('Location'), subtitle=location_text, action=onclick.bind(None, def(view): view.overlay.show_ask_for_location();)))
     for l in landmarks:
         items.push(create_item(l.title, action=onclick.bind(None, l.dest, l.frag)))
@@ -58,20 +62,16 @@ def create_location_overlay(current_position_data, overlay, container):
     container_id = ensure_id(container)
     container.appendChild(E.div(style='margin: 0 1rem'))
     container = container.lastChild
-    container.appendChild(E.div(
-        style='padding-top: 1rem',
-        E.h4(_('Using book location (most accurate)'))
-    ))
     current_cfi = current_position_data.cfi
     if current_cfi:
-        container.lastChild.appendChild(E.div(
-            style='margin: 1rem 0; display: flex; align-items: baseline',
-            E.input(
-                type='text', readonly='readonly', value=_('Currently at: {}').format(current_cfi), name='current_location',
-                style='border-width: 0; background-color: transparent; outline: none; flex-grow: 10; font-family: inherit'
+        container.appendChild(E.div(
+            style='margin: 1rem; margin-bottom: calc(1rem - 1ex); display: flex; align-items: baseline; flex-wrap: wrap',
+            E.div(
+                _('Current location: {}').format(current_cfi),
+                style='flex-grow: 10; text-overflow: ellipsis; margin-bottom: 1ex'
             ),
             create_button(_('Copy'), action=def():
-                src = document.querySelector(f'#{container_id} [name=current_location]')
+                src = document.querySelector(f'#{container_id} input')
                 orig = src.value
                 src.value = current_cfi
                 src.focus()
@@ -80,56 +80,58 @@ def create_location_overlay(current_position_data, overlay, container):
                     document.execCommand('copy')
                 finally:
                     src.value = orig
-                    src.blur()
             )
         ))
 
-    def goto_loc():
-        src = document.querySelector(f'#{container_id} [name=newloc]')
-        if src.value:
-            if ui_operations.goto_cfi(src.value):
-                overlay.hide()
-            else:
-                error_dialog(_('No such location'), _(
-                    'No location {} found').format(src.value))
+    def goto_cfi(cfi):
+        if ui_operations.goto_cfi(cfi):
+            overlay.hide()
+        else:
+            error_dialog(_('No such location'), _(
+                'No location {} found').format(cfi))
 
-    container.lastChild.appendChild(E.div(
-        style='margin: 1rem 0;',
-        E.div(
-            style='display: flex; align-items: baseline',
-            E.label(_('Go to:'), style='margin-right: 1rem'),
-            E.input(name='newloc', type='text', style='flex-grow: 10; margin-right: 1rem', onkeydown=def(ev):
-                    if ev.key is 'Enter':
-                        goto_loc()
-            ),
-            E.span(' '),
-            create_button(_('Go'), action=goto_loc)
-        )
-    ))
+    def goto_ref(ref):
+        if ui_operations.goto_reference(ref):
+            overlay.hide()
+        else:
+            error_dialog(_('No such reference'), _(
+                'No reference {} found').format(ref))
 
-    container.appendChild(E.div(
-        style='margin-top: 1rem; border-top: solid 1px; padding-top: 1rem',
-        E.h4(_('Using book position'))
-    ))
     if current_position_data.book_length > 0:
-        container.lastChild.appendChild(
-            E.div(style='margin: 1rem 0', _('Currently at: {}').format(
+        container.appendChild(
+            E.div(style='margin: 1rem', _('Current position: {}').format(
                 format_pos(current_position_data.progress_frac, current_position_data.book_length))))
 
-    def goto_pos():
-        src = document.querySelector(f'#{container_id} [name=newpos]')
-        ui_operations.goto_book_position(float(src.value))
-        overlay.hide()
+    container.appendChild(
+        E.div(style='margin: 1rem', _(
+            'Type the position, location or reference below. For a reference type ref: followed by the reference:')))
 
-    container.lastChild.appendChild(E.div(
-        style='margin: 1rem 0;',
+    def goto_pos():
+        src = document.querySelector(f'#{container_id} [name=newpos]').value
+        if not src:
+            return
+        if src.indexOf('epubcfi(') is 0:
+            return goto_cfi(src)
+        if src.indexOf('ref:') is 0:
+            return goto_ref(src[len('ref:'):])
+        try:
+            ui_operations.goto_book_position(float(src))
+        except:
+            error_dialog(_('Not a valid book position'), _(
+                '{} is not a valid book position').format(src))
+        else:
+            overlay.hide()
+
+    container.appendChild(E.div(
+        style='margin: 1rem;',
         E.div(
-            style='display: flex; align-items: baseline',
+            style='display: flex; align-items: baseline; flex-wrap: wrap',
             E.label(_('Go to:'), style='margin-right: 1rem'),
-            E.input(name='newpos', type='number', min='0', max=str(current_position_data.book_length), step='0.1', style='flex-grow: 10; margin-right: 1rem', onkeydown=def(ev):
+            E.input(name='newpos', type='text', min='0', max=str(current_position_data.book_length), step='0.1', style='flex-grow: 10; margin-right: 1rem', onkeydown=def(ev):
                     if ev.key is 'Enter':
                         goto_pos()
             ), E.span(' '),
             create_button(_('Go'), action=goto_pos)
         )
     ))
+    container.querySelector('[name=newpos]').focus()

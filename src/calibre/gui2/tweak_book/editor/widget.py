@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -40,7 +40,7 @@ def create_icon(text, palette=None, sz=None, divider=2, fill='white'):
         qDrawShadeRect(p, img.rect(), palette, fill=fill, lineWidth=1, midLineWidth=1)
     f = p.font()
     f.setFamily('Liberation Sans'), f.setPixelSize(int(sz // divider)), f.setBold(True)
-    p.setFont(f), p.setPen(Qt.black)
+    p.setFont(f), p.setPen(QColor('#2271d5'))
     p.drawText(img.rect().adjusted(2, 2, -2, -2), Qt.AlignCenter, text)
     p.end()
     return QIcon(QPixmap.fromImage(img))
@@ -181,6 +181,10 @@ class Editor(QMainWindow):
 
     def current_tag(self, for_position_sync=True):
         return self.editor.current_tag(for_position_sync=for_position_sync)
+
+    @property
+    def highlighter(self):
+        return self.editor.highlighter
 
     @property
     def number_of_lines(self):

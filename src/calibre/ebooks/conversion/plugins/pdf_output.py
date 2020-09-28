@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL 3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -54,7 +54,7 @@ class PDFOutput(OutputFormatPlugin):
             recommended_value=False,
             help=_('Preserve the aspect ratio of the cover, instead'
                 ' of stretching it to fill the full first page of the'
-                ' generated pdf.')),
+                ' generated PDF.')),
         OptionRecommendation(name='pdf_serif_family',
             recommended_value='Times', help=_(
                 'The font family used to render serif fonts. Will work only if the font is available system-wide.')),
@@ -130,6 +130,18 @@ class PDFOutput(OutputFormatPlugin):
             recommended_value=False, help=_(
                 'Generate an uncompressed PDF, useful for debugging.')
         ),
+        OptionRecommendation(name='pdf_odd_even_offset', recommended_value=0.0,
+            level=OptionRecommendation.LOW,
+            help=_(
+                'Shift the text horizontally by the specified offset (in pts).'
+                ' On odd numbered pages, it is shifted to the right and on even'
+                ' numbered pages to the left. Use negative numbers for the opposite'
+                ' effect. Note that this setting is ignored on pages where the margins'
+                ' are smaller than the specified offset. Shifting is done by setting'
+                ' the PDF CropBox, not all software respects the CropBox.'
+            )
+        ),
+
     }
 
     def specialize_options(self, log, opts, input_fmt):
@@ -184,7 +196,8 @@ class PDFOutput(OutputFormatPlugin):
         if (oeb.metadata.cover and unicode_type(oeb.metadata.cover[0]) in oeb.manifest.ids):
             cover_id = unicode_type(oeb.metadata.cover[0])
             item = oeb.manifest.ids[cover_id]
-            self.cover_data = item.data
+            if isinstance(item.data, bytes):
+                self.cover_data = item.data
 
     def process_fonts(self):
         ''' Make sure all fonts are embeddable '''

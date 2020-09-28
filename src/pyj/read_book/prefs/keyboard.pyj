@@ -84,7 +84,7 @@ def close_customize_shortcut(apply_changes):
                 item.dataset.userData = JSON.stringify(q)
                 break
         get_container().dataset.changed = 'true'
-        commit_keyboard(create_keyboard_panel.onchange)
+        commit_keyboard(create_keyboard_panel.onchange, None)
 
 
 def add_key_widget():
@@ -145,7 +145,7 @@ def customize_shortcut(sc_name):
 
 
 
-def create_keyboard_panel(container, close_func, onchange):
+def create_keyboard_panel(container, apply_func, cancel_func, onchange):
     create_keyboard_panel.onchange = onchange
     container.appendChild(E.div(id=unique_id('keyboard-settings'), style='margin: 1rem'))
     container = container.lastChild
@@ -168,7 +168,7 @@ def create_keyboard_panel(container, close_func, onchange):
         create_item_list(container.lastChild, items)
 
     container.appendChild(E.div(
-        style='margin-top: 1rem', create_button(_('Restore defaults'), action=restore_defaults.bind(None, close_func))
+        style='margin-top: 1rem', create_button(_('Restore defaults'), action=restore_defaults.bind(None, apply_func))
     ))
 
 
@@ -184,7 +184,7 @@ def shortcuts_differ(a, b):
     return False
 
 
-def commit_keyboard(onchange):
+def commit_keyboard(onchange, container):
     sd = get_session_data()
     vals = {}
     for item in get_container().querySelectorAll('[data-user-data]'):
@@ -192,6 +192,7 @@ def commit_keyboard(onchange):
         if shortcuts_differ(q.shortcuts, shortcuts_definition()[q.name].shortcuts):
             vals[q.name] = q.shortcuts
     sd.set('keyboard_shortcuts', vals)
-    create_keyboard_panel.onchange = None
+    if container is not None:
+        create_keyboard_panel.onchange = None
     if get_container().dataset.changed is 'true':
         onchange()

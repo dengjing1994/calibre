@@ -2,8 +2,6 @@
 # vim:fileencoding=utf-8
 # License: GPL v3 Copyright: 2019, Kovid Goyal <kovid at kovidgoyal.net>
 
-from __future__ import print_function
-
 import json
 import os
 import re
@@ -41,6 +39,7 @@ dlls = [
     'Quick',
     'QuickWidgets',
     'Qml',
+    'QmlModels',
     # 'MultimediaWidgets',
     'Xml',
     # 'XmlPatterns',

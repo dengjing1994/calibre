@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # vim:fileencoding=utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
+
 
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
@@ -8,7 +8,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import shutil, os, errno
 from threading import Thread
 
-from PyQt5.Qt import (QObject, pyqtSignal, QLabel, QWidget, QHBoxLayout, Qt)
+from PyQt5.Qt import (QObject, pyqtSignal, QLabel, QWidget, QHBoxLayout, Qt, QSize)
 
 from calibre.constants import iswindows
 from calibre.ptempfile import PersistentTemporaryFile
@@ -110,7 +110,7 @@ class SaveWidget(QWidget):
         self.stop()
 
     def start(self):
-        self.pi.setDisplaySize(self.label.height())
+        self.pi.setDisplaySize(QSize(self.label.height(), self.label.height()))
         self.pi.setVisible(True)
         self.pi.startAnimation()
         self.label.setText(_('Saving...'))
